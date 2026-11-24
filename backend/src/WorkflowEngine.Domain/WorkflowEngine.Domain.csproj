@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>WorkflowEngine.Domain</RootNamespace>
+    <AssemblyName>WorkflowEngine.Domain</AssemblyName>
+  </PropertyGroup>
+</Project>
