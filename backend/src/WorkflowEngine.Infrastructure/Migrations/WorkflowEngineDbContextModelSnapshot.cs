@@ -220,6 +220,10 @@ namespace WorkflowEngine.Infrastructure.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
 
+                    b.Property<string>("ActivePublishedVersionId")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
                     b.Property<string>("Category")
                         .IsRequired()
                         .ValueGeneratedOnAdd()
@@ -241,6 +245,11 @@ namespace WorkflowEngine.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("nvarchar(max)")
                         .HasDefaultValue("[]");
+
+                    b.Property<int>("LatestVersionNumber")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(1);
 
                     b.Property<string>("LinkedSmartObjectId")
                         .HasMaxLength(100)
@@ -314,6 +323,10 @@ namespace WorkflowEngine.Infrastructure.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
 
+                    b.Property<string>("SmartFormVersionId")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
                     b.Property<DateTime>("SubmittedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("datetime2")
@@ -330,12 +343,62 @@ namespace WorkflowEngine.Infrastructure.Migrations
                     b.HasIndex("SmartFormId")
                         .HasDatabaseName("IX_SmartFormSubmissions_FormId");
 
+                    b.HasIndex("SmartFormVersionId")
+                        .HasDatabaseName("IX_SmartFormSubmissions_VersionId");
+
                     b.HasIndex("SmartFormId", "IdempotencyKey")
                         .IsUnique()
                         .HasDatabaseName("UX_SmartFormSubmissions_Form_IdempotencyKey")
                         .HasFilter("[IdempotencyKey] IS NOT NULL");
 
                     b.ToTable("SmartFormSubmissions", (string)null);
+                });
+
+            modelBuilder.Entity("WorkflowEngine.Domain.Entities.SmartFormVersion", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<string>("FieldsJson")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("nvarchar(max)")
+                        .HasDefaultValue("[]");
+
+                    b.Property<DateTime?>("PublishedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("PublishedBy")
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.Property<string>("SmartFormId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<int>("VersionNumber")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id")
+                        .HasName("PK_SmartFormVersions");
+
+                    b.HasIndex("SmartFormId", "VersionNumber")
+                        .IsUnique()
+                        .HasDatabaseName("UQ_SmartFormVersions_Form_Ver");
+
+                    b.ToTable("SmartFormVersions", (string)null);
                 });
 
             modelBuilder.Entity("WorkflowEngine.Domain.Entities.SmartObjectEntity", b =>
@@ -748,6 +811,10 @@ namespace WorkflowEngine.Infrastructure.Migrations
                     b.Property<string>("SensitiveVariableNamesJson")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<string>("SmartFormVersionId")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
                     b.Property<DateTime>("StartedAt")
                         .HasColumnType("datetime2");
 
@@ -942,6 +1009,18 @@ namespace WorkflowEngine.Infrastructure.Migrations
                     b.Navigation("Instance");
                 });
 
+            modelBuilder.Entity("WorkflowEngine.Domain.Entities.SmartFormVersion", b =>
+                {
+                    b.HasOne("WorkflowEngine.Domain.Entities.SmartFormEntity", "SmartForm")
+                        .WithMany("Versions")
+                        .HasForeignKey("SmartFormId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("FK_SmartFormVersions_SmartForms");
+
+                    b.Navigation("SmartForm");
+                });
+
             modelBuilder.Entity("WorkflowEngine.Domain.Entities.WorkflowAuditLog", b =>
                 {
                     b.HasOne("WorkflowEngine.Domain.Entities.WorkflowInstance", "Instance")
@@ -1000,6 +1079,11 @@ namespace WorkflowEngine.Infrastructure.Migrations
                         .HasConstraintName("FK_WorkflowVersions_Definitions");
 
                     b.Navigation("Definition");
+                });
+
+            modelBuilder.Entity("WorkflowEngine.Domain.Entities.SmartFormEntity", b =>
+                {
+                    b.Navigation("Versions");
                 });
 
             modelBuilder.Entity("WorkflowEngine.Domain.Entities.WorkflowDefinition", b =>

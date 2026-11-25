@@ -135,7 +135,8 @@ public class AtomicSubmissionAndConcurrencyTests : IClassFixture<TestWebApplicat
             category = "Finance",
             linkedSmartObjectId = soId,
             linkedWorkflowKey = $"missing-workflow-{Guid.NewGuid():N}"[..28],
-            fields = SimpleVendorFields()
+            fields = SimpleVendorFields(),
+            publishImmediately = true
         });
         createFormRes.StatusCode.Should().Be(HttpStatusCode.Created);
 
@@ -183,7 +184,8 @@ public class AtomicSubmissionAndConcurrencyTests : IClassFixture<TestWebApplicat
             title = "Idempotent Submission Form",
             category = "Finance",
             linkedWorkflowKey = wfKey,
-            fields = SimpleVendorFields()
+            fields = SimpleVendorFields(),
+            publishImmediately = true
         });
         createFormRes.StatusCode.Should().Be(HttpStatusCode.Created);
 
@@ -238,7 +240,8 @@ public class AtomicSubmissionAndConcurrencyTests : IClassFixture<TestWebApplicat
             name = "VersionedForm",
             title = "Versioned Form v1",
             category = "Finance",
-            fields = SimpleVendorFields()
+            fields = SimpleVendorFields(),
+            publishImmediately = true
         });
         createRes.StatusCode.Should().Be(HttpStatusCode.Created);
         var created = await createRes.Content.ReadFromJsonAsync<SmartFormDto>();

@@ -34,6 +34,27 @@ public record SmartFormFieldDto(
     [property: JsonPropertyName("visibilityRule")] SmartFormVisibilityRuleDto? VisibilityRule = null
 );
 
+public record SmartFormVersionSummaryDto(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("smartFormId")] string SmartFormId,
+    [property: JsonPropertyName("versionNumber")] int VersionNumber,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("publishedAt")] DateTime? PublishedAt,
+    [property: JsonPropertyName("publishedBy")] string? PublishedBy,
+    [property: JsonPropertyName("createdAt")] DateTime CreatedAt
+);
+
+public record SmartFormVersionDetailDto(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("smartFormId")] string SmartFormId,
+    [property: JsonPropertyName("versionNumber")] int VersionNumber,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("fields")] List<SmartFormFieldDto> Fields,
+    [property: JsonPropertyName("publishedAt")] DateTime? PublishedAt,
+    [property: JsonPropertyName("publishedBy")] string? PublishedBy,
+    [property: JsonPropertyName("createdAt")] DateTime CreatedAt
+);
+
 public record SmartFormDto(
     [property: JsonPropertyName("id")] string Id,
     [property: JsonPropertyName("name")] string Name,
@@ -46,7 +67,13 @@ public record SmartFormDto(
     [property: JsonPropertyName("submissionsCount")] int SubmissionsCount,
     [property: JsonPropertyName("fields")] List<SmartFormFieldDto> Fields,
     [property: JsonPropertyName("updatedAt")] DateTime UpdatedAt,
-    [property: JsonPropertyName("version")] int Version = 1
+    [property: JsonPropertyName("version")] int Version = 1,
+    [property: JsonPropertyName("activePublishedVersionId")] string? ActivePublishedVersionId = null,
+    [property: JsonPropertyName("latestVersionNumber")] int LatestVersionNumber = 1,
+    [property: JsonPropertyName("latestVersionId")] string? LatestVersionId = null,
+    [property: JsonPropertyName("latestVersionStatus")] string LatestVersionStatus = "Draft",
+    [property: JsonPropertyName("hasUnpublishedDraft")] bool HasUnpublishedDraft = false,
+    [property: JsonPropertyName("draftFields")] List<SmartFormFieldDto>? DraftFields = null
 );
 
 public record SmartFormSubmissionDto(
@@ -56,7 +83,8 @@ public record SmartFormSubmissionDto(
     [property: JsonPropertyName("data")] Dictionary<string, object?> Data,
     [property: JsonPropertyName("linkedInstanceId")] string? LinkedInstanceId,
     [property: JsonPropertyName("submittedAt")] DateTime SubmittedAt,
-    [property: JsonPropertyName("idempotentReplay")] bool IdempotentReplay = false
+    [property: JsonPropertyName("idempotentReplay")] bool IdempotentReplay = false,
+    [property: JsonPropertyName("smartFormVersionId")] string? SmartFormVersionId = null
 );
 
 public record FormAttachmentDto(

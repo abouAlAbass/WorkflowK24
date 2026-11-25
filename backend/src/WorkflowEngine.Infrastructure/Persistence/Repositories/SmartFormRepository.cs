@@ -17,6 +17,7 @@ public class SmartFormRepository : ISmartFormRepository
     {
         return await _context.SmartForms
             .AsNoTracking()
+            .Include(f => f.Versions)
             .OrderByDescending(f => f.UpdatedAt)
             .ToListAsync(ct);
     }
@@ -24,7 +25,24 @@ public class SmartFormRepository : ISmartFormRepository
     public async Task<SmartFormEntity?> GetByIdAsync(string id, CancellationToken ct = default)
     {
         return await _context.SmartForms
+            .Include(f => f.Versions)
             .FirstOrDefaultAsync(f => f.Id == id, ct);
+    }
+
+    public async Task<IReadOnlyList<SmartFormVersion>> GetVersionsAsync(string smartFormId, CancellationToken ct = default)
+    {
+        return await _context.SmartFormVersions
+            .AsNoTracking()
+            .Where(v => v.SmartFormId == smartFormId)
+            .OrderByDescending(v => v.VersionNumber)
+            .ToListAsync(ct);
+    }
+
+    public async Task<SmartFormVersion?> GetVersionByIdAsync(string smartFormId, string versionId, CancellationToken ct = default)
+    {
+        return await _context.SmartFormVersions
+            .AsNoTracking()
+            .FirstOrDefaultAsync(v => v.SmartFormId == smartFormId && v.Id == versionId, ct);
     }
 
     public async Task AddAsync(SmartFormEntity form, CancellationToken ct = default)
@@ -35,7 +53,21 @@ public class SmartFormRepository : ISmartFormRepository
 
     public async Task UpdateAsync(SmartFormEntity form, CancellationToken ct = default)
     {
-        _context.SmartForms.Update(form);
+        var entry = _context.Entry(form);
+        if (entry.State == EntityState.Detached)
+        {
+            _context.SmartForms.Update(form);
+        }
+
+        foreach (var version in form.Versions)
+        {
+            var versionEntry = _context.Entry(version);
+            if (versionEntry.State == EntityState.Detached)
+            {
+                await _context.SmartFormVersions.AddAsync(version, ct);
+            }
+        }
+
         await _context.SaveChangesAsync(ct);
     }
 

@@ -4,19 +4,45 @@ import { useWorkflowStore } from '../../hooks/useWorkflowStore';
 import { useSmartFormStore } from '../../store/useSmartFormStore';
 import { SmartFormRenderer, evaluateFieldVisibility } from '../forms/SmartFormRenderer';
 import type { ActionItemTask, ApprovalOutcome } from '../../types/workflow';
+import type { SmartFormDefinition, SmartFormVersionDetail } from '../../types/smartform';
 
 export const TaskCenterView: React.FC = () => {
   const { actionItemTasks, resolveTask } = useWorkflowStore();
   const forms = useSmartFormStore((s) => s.forms);
+  const fetchFormVersion = useSmartFormStore((s) => s.fetchFormVersion);
 
   const [selectedTask, setSelectedTask] = useState<ActionItemTask | null>(actionItemTasks[0] || null);
   const [selectedOutcome, setSelectedOutcome] = useState<ApprovalOutcome | null>(null);
   const [comment, setComment] = useState('');
   const [formPatch, setFormPatch] = useState<Record<string, unknown>>({});
+  const [pinnedVersion, setPinnedVersion] = useState<SmartFormVersionDetail | null>(null);
 
   useEffect(() => {
     setFormPatch({});
   }, [selectedTask?.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (selectedTask?.formId && selectedTask?.formVersionId) {
+      fetchFormVersion(selectedTask.formId, selectedTask.formVersionId)
+        .then((detail) => {
+          if (!cancelled) {
+            setPinnedVersion(detail);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setPinnedVersion(null);
+          }
+        });
+    } else {
+      setPinnedVersion(null);
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedTask?.formId, selectedTask?.formVersionId, fetchFormVersion]);
 
   useEffect(() => {
     if (selectedTask && !actionItemTasks.some((t) => t.id === selectedTask.id)) {
@@ -33,8 +59,19 @@ export const TaskCenterView: React.FC = () => {
     setFormPatch({});
   };
 
-  const boundForm = selectedTask?.formId
+  const baseForm = selectedTask?.formId
     ? forms.find((f) => f.id === selectedTask.formId)
+    : undefined;
+
+  const boundForm: SmartFormDefinition | undefined = baseForm
+    ? (pinnedVersion && pinnedVersion.smartFormId === baseForm.id
+        ? {
+            ...baseForm,
+            fields: pinnedVersion.fields,
+            latestVersionNumber: pinnedVersion.versionNumber,
+            latestVersionStatus: pinnedVersion.status
+          }
+        : baseForm)
     : undefined;
 
   const handleFormValuesChange = (updatedValues: Record<string, unknown>) => {
@@ -228,6 +265,14 @@ export const TaskCenterView: React.FC = () => {
                       <span className="text-xs font-extrabold text-[#0F172A] dark:text-white flex items-center gap-1.5">
                         <FileSpreadsheet className="w-4 h-4 text-[#2563EB] dark:text-blue-400" />
                         <span>Bound SmartForm: {boundForm.title}</span>
+                        {pinnedVersion && (
+                          <span
+                            data-testid="task-pinned-form-version"
+                            className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-blue-500/10 text-[#2563EB] dark:text-blue-400"
+                          >
+                            {`v${pinnedVersion.versionNumber} • ${pinnedVersion.status}`}
+                          </span>
+                        )}
                       </span>
                       <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
                         {selectedTask.formMode === 'editable' ? 'Editable Mode' : 'Read-Only Review'}

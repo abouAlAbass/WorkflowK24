@@ -30,5 +30,6 @@ public record WorkflowTaskDto(
     string? FormId = null,
     string FormMode = "readonly",
     Dictionary<string, object?>? FormData = null,
-    int Version = 1
+    int Version = 1,
+    string? FormVersionId = null
 );

@@ -214,4 +214,27 @@ describe('No-Code SmartForms Designer & Conditional Runtime Renderer', () => {
     expect(submittedPayload).not.toHaveProperty('HiddenWhenLow');
     expect(screen.getByText('Amount exceeds department limit.')).toBeInTheDocument();
   });
+
+  it('displays Draft/Published version badge and triggers publishing a new version', async () => {
+    render(<SmartFormsView />);
+
+    // Initially seeded form is v1 • Published
+    const badge = screen.getByTestId('smartform-version-badge');
+    expect(badge).toHaveTextContent(/v\d+\s*•\s*(Published|Draft)/i);
+
+    // Adding a field transitions the form into an unpublished Draft version
+    fireEvent.click(screen.getByTestId('palette-add-text'));
+    expect(screen.getByTestId('smartform-version-badge')).toHaveTextContent(/Draft/i);
+
+    const publishBtn = screen.getByTestId('publish-smartform-btn');
+    expect(publishBtn).not.toBeDisabled();
+
+    // Clicking Publish Version activates the new version as Published
+    await act(async () => {
+      fireEvent.click(publishBtn);
+    });
+
+    expect(screen.getByTestId('smartform-version-badge')).toHaveTextContent(/Published/i);
+    expect(screen.getByTestId('smartform-version-selector')).toBeInTheDocument();
+  });
 });

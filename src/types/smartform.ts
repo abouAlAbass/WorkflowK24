@@ -50,6 +50,22 @@ export interface SmartFormField {
   visibilityRule?: SmartFormVisibilityRule | null;
 }
 
+export type SmartFormVersionStatus = 'Draft' | 'Published' | 'Archived';
+
+export interface SmartFormVersionSummary {
+  id: string;
+  smartFormId: string;
+  versionNumber: number;
+  status: SmartFormVersionStatus;
+  publishedAt?: string | null;
+  publishedBy?: string | null;
+  createdAt: string;
+}
+
+export interface SmartFormVersionDetail extends SmartFormVersionSummary {
+  fields: SmartFormField[];
+}
+
 export interface SmartFormDefinition {
   id: string;
   name: string;
@@ -64,6 +80,12 @@ export interface SmartFormDefinition {
   updatedAt: string;
   /** Optimistic-concurrency token returned by the API; sent back as expectedVersion on update. */
   version?: number;
+  activePublishedVersionId?: string | null;
+  latestVersionNumber?: number;
+  latestVersionId?: string | null;
+  latestVersionStatus?: SmartFormVersionStatus;
+  hasUnpublishedDraft?: boolean;
+  draftFields?: SmartFormField[] | null;
 }
 
 export interface FormAttachmentValue {
@@ -83,4 +105,5 @@ export interface SmartFormSubmission {
   data: Record<string, unknown>;
   linkedInstanceId?: string | null;
   submittedAt: string;
+  smartFormVersionId?: string | null;
 }

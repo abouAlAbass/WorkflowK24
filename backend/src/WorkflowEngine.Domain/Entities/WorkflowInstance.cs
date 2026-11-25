@@ -24,6 +24,7 @@ public class WorkflowInstance
     public string? ContextVariablesJson { get; private set; }
     public string? SensitiveVariableNamesJson { get; private set; }
     public string? ExecutionStackJson { get; private set; }
+    public string? SmartFormVersionId { get; private set; }
     public DateTime StartedAt { get; private set; } = DateTime.UtcNow;
     public DateTime? CompletedAt { get; private set; }
     public DateTime LastUpdatedAt { get; private set; } = DateTime.UtcNow;
@@ -279,6 +280,17 @@ public class WorkflowInstance
         ContextVariablesJson = updatedVariablesJson;
         LastUpdatedAt = DateTime.UtcNow;
         AddAuditLog(NextSequenceNumber(), CurrentNodeId, CurrentNodeType, AuditEventType.VariableUpdated, "Runtime context variables updated.");
+    }
+
+    public void PinSmartFormVersion(string smartFormVersionId)
+    {
+        if (string.IsNullOrWhiteSpace(smartFormVersionId))
+        {
+            throw new ArgumentException("SmartFormVersionId is required.", nameof(smartFormVersionId));
+        }
+
+        SmartFormVersionId = smartFormVersionId.Trim();
+        LastUpdatedAt = DateTime.UtcNow;
     }
 
     public void RecordTaskDecision(

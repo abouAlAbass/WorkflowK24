@@ -20,6 +20,7 @@ public class WorkflowEngineDbContext : DbContext
     public DbSet<SmartObjectEntity> SmartObjects => Set<SmartObjectEntity>();
     public DbSet<SmartObjectRecordEntity> SmartObjectRecords => Set<SmartObjectRecordEntity>();
     public DbSet<SmartFormEntity> SmartForms => Set<SmartFormEntity>();
+    public DbSet<SmartFormVersion> SmartFormVersions => Set<SmartFormVersion>();
     public DbSet<SmartFormSubmissionEntity> SmartFormSubmissions => Set<SmartFormSubmissionEntity>();
     public DbSet<FormAttachmentEntity> FormAttachments => Set<FormAttachmentEntity>();
     public DbSet<SystemUser> SystemUsers => Set<SystemUser>();

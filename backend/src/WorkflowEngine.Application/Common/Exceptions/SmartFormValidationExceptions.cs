@@ -22,3 +22,16 @@ public sealed class SmartFormValidationFailedException : Exception
         };
     }
 }
+
+/// <summary>
+/// Raised when a runtime submission is attempted against a SmartForm that has no Published version.
+/// Mapped to HTTP 422 Unprocessable Entity with code FORM_NOT_PUBLISHED.
+/// </summary>
+public sealed class SmartFormNotPublishedException : InvalidOperationException
+{
+    public const string ErrorCode = "FORM_NOT_PUBLISHED";
+
+    public SmartFormNotPublishedException(string message) : base(message)
+    {
+    }
+}

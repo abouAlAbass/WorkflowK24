@@ -1006,6 +1006,7 @@ public class WorkflowApiEndpointsTests : IClassFixture<TestWebApplicationFactory
             name = "RequiredValidationForm",
             title = "Required Validation Form",
             category = "Finance",
+            publishImmediately = true,
             fields = new object[]
             {
                 new { id = "f1", name = "VendorName", label = "Vendor Name", type = "text", required = true, readOnly = false },
@@ -1058,6 +1059,7 @@ public class WorkflowApiEndpointsTests : IClassFixture<TestWebApplicationFactory
             name = "HiddenRequiredForm",
             title = "Hidden Required Form",
             category = "Finance",
+            publishImmediately = true,
             fields = new object[]
             {
                 new { id = "f1", name = "VendorName", label = "Vendor Name", type = "text", required = true, readOnly = false },
@@ -1117,6 +1119,7 @@ public class WorkflowApiEndpointsTests : IClassFixture<TestWebApplicationFactory
             name = "StrictTypedForm",
             title = "Strict Typed Form",
             category = "Finance",
+            publishImmediately = true,
             fields = new object[]
             {
                 new
@@ -1165,6 +1168,7 @@ public class WorkflowApiEndpointsTests : IClassFixture<TestWebApplicationFactory
             name = "DosQuotaForm",
             title = "DoS Quota Form",
             category = "Security",
+            publishImmediately = true,
             fields = new object[]
             {
                 new { id = "f1", name = "Notes", label = "Notes", type = "textarea", required = false, readOnly = false }
@@ -1213,6 +1217,7 @@ public class WorkflowApiEndpointsTests : IClassFixture<TestWebApplicationFactory
             name = "ReadOnlyProtectedTaskForm",
             title = "ReadOnly Protected Task Form",
             category = "Finance",
+            publishImmediately = true,
             fields = new object[]
             {
                 new { id = "f1", name = "RequisitionCode", label = "Requisition Code", type = "text", required = false, readOnly = true, defaultValue = "REQ-2026-001" },

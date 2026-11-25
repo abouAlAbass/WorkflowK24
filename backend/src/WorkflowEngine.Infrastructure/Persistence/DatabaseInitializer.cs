@@ -145,10 +145,30 @@ public static class DatabaseInitializer
                 purchaseFieldsJson,
                 "so-expense",
                 "expense",
-                "Published"));
+                "Published",
+                publishImmediately: true,
+                publishedBy: "system"));
 
             await context.SaveChangesAsync();
             logger.LogInformation("Seeded default SmartForms.");
+        }
+
+        // Backfill any pre-existing SmartForms that have no SmartFormVersions rows yet
+        var legacyForms = await context.SmartForms
+            .Include(f => f.Versions)
+            .Where(f => !f.Versions.Any())
+            .ToListAsync();
+
+        if (legacyForms.Count > 0)
+        {
+            foreach (var form in legacyForms)
+            {
+                var v1 = form.EnsureInitialPublishedVersion("system");
+                context.SmartFormVersions.Add(v1);
+            }
+
+            await context.SaveChangesAsync();
+            logger.LogInformation("Backfilled initial Published SmartFormVersion v1 for {Count} existing SmartForm(s).", legacyForms.Count);
         }
     }
 }

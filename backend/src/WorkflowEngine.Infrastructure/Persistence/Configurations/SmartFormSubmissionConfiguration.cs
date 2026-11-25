@@ -24,6 +24,13 @@ public class SmartFormSubmissionConfiguration : IEntityTypeConfiguration<SmartFo
         builder.HasIndex(s => s.SmartFormId)
             .HasDatabaseName("IX_SmartFormSubmissions_FormId");
 
+        builder.Property(s => s.SmartFormVersionId)
+            .HasMaxLength(100)
+            .IsRequired(false);
+
+        builder.HasIndex(s => s.SmartFormVersionId)
+            .HasDatabaseName("IX_SmartFormSubmissions_VersionId");
+
         builder.Property(s => s.SubmittedBy)
             .HasMaxLength(255)
             .IsRequired();

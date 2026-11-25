@@ -286,6 +286,7 @@ export interface ActionItemTask {
   description: string;
   outcomes: ApprovalOutcome[];
   formId?: string | null;
+  formVersionId?: string | null;
   formMode: 'readonly' | 'editable';
   formData: Record<string, unknown>;
 }

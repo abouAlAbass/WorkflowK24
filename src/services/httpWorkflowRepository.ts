@@ -423,6 +423,7 @@ export class HttpWorkflowRepository implements WorkflowRepository {
             { id: 'reject', label: 'Reject', color: '#DC2626' }
           ],
       formId: t.formId ?? null,
+      formVersionId: t.formVersionId ?? null,
       formMode: t.formMode === 'editable' ? 'editable' : 'readonly',
       formData: t.formData && typeof t.formData === 'object' ? t.formData : {}
     }));

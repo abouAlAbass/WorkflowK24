@@ -71,3 +71,14 @@ public enum AuditEventType
     ErrorRaised = 6,
     TaskCompleted = 7
 }
+
+/// <summary>
+/// Lifecycle status of an immutable SmartFormVersion snapshot.
+/// Draft versions can be edited; Published and Archived versions are strictly immutable.
+/// </summary>
+public enum SmartFormVersionStatus
+{
+    Draft = 0,
+    Published = 1,
+    Archived = 2
+}

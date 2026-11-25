@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   FileSpreadsheet,
   Plus,
@@ -23,7 +23,10 @@ import {
   Table,
   Upload,
   LayoutTemplate,
-  X
+  X,
+  Send,
+  History,
+  Lock
 } from 'lucide-react';
 import { useSmartFormStore } from '../../store/useSmartFormStore';
 import { useWorkflowStore } from '../../hooks/useWorkflowStore';
@@ -56,8 +59,14 @@ export const SmartFormsView: React.FC = () => {
     forms,
     selectedFormId,
     selectedFieldId,
+    selectedVersionId,
+    versionsByForm,
+    versionDetails,
     selectForm,
     selectField,
+    selectVersion,
+    fetchFormVersions,
+    publishFormVersion,
     createForm,
     saveForm,
     deleteForm,
@@ -75,6 +84,7 @@ export const SmartFormsView: React.FC = () => {
   const [mode, setMode] = useState<'design' | 'preview'>('design');
   const [savedBanner, setSavedBanner] = useState<string | null>(null);
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
+  const [isPublishing, setIsPublishing] = useState(false);
   const [isGenerateModalOpen, setIsGenerateModalOpen] = useState(false);
   const [isNewFormModalOpen, setIsNewFormModalOpen] = useState(false);
   const [targetSOId, setTargetSOId] = useState(smartObjects[0]?.id || '');
@@ -85,7 +95,29 @@ export const SmartFormsView: React.FC = () => {
   const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
 
   const activeForm = forms.find((f) => f.id === selectedFormId) || forms[0];
-  const selectedField = activeForm?.fields.find((fld) => fld.id === selectedFieldId) || null;
+  const formVersions = activeForm ? (versionsByForm[activeForm.id] || []) : [];
+  const inspectedVersion = activeForm && selectedVersionId
+    ? versionDetails[`${activeForm.id}:${selectedVersionId}`] || null
+    : null;
+  const isViewingHistoricalVersion = Boolean(inspectedVersion && inspectedVersion.status !== 'Draft');
+  const displayedFields = isViewingHistoricalVersion && inspectedVersion
+    ? inspectedVersion.fields
+    : (activeForm?.fields || []);
+  const selectedField = displayedFields.find((fld) => fld.id === selectedFieldId) || null;
+
+  const currentVersionNumber = inspectedVersion?.versionNumber ?? activeForm?.latestVersionNumber ?? 1;
+  const currentVersionStatus = inspectedVersion?.status ?? activeForm?.latestVersionStatus ?? activeForm?.status ?? 'Draft';
+  const canPublish = Boolean(
+    activeForm &&
+    !isViewingHistoricalVersion &&
+    (activeForm.hasUnpublishedDraft || activeForm.latestVersionStatus === 'Draft' || activeForm.status === 'Draft')
+  );
+
+  useEffect(() => {
+    if (activeForm?.id) {
+      void fetchFormVersions(activeForm.id);
+    }
+  }, [activeForm?.id, fetchFormVersions]);
 
   const flashBanner = (msg: string) => {
     setSavedBanner(msg);
@@ -143,14 +175,29 @@ export const SmartFormsView: React.FC = () => {
   };
 
   const handleSaveActiveForm = async () => {
-    if (!activeForm) return;
+    if (!activeForm || isViewingHistoricalVersion) return;
     try {
       await saveForm(activeForm);
       setErrorBanner(null);
-      flashBanner(`Saved "${activeForm.title}"!`);
+      flashBanner(`Saved draft of "${activeForm.title}"!`);
     } catch (err: unknown) {
       setErrorBanner(err instanceof Error ? err.message : 'Failed to save the form.');
       setTimeout(() => setErrorBanner(null), 8000);
+    }
+  };
+
+  const handlePublishVersion = async () => {
+    if (!activeForm || !canPublish) return;
+    setIsPublishing(true);
+    try {
+      const published = await publishFormVersion(activeForm.id);
+      setErrorBanner(null);
+      flashBanner(`Published v${published.latestVersionNumber ?? currentVersionNumber} of "${published.title}"!`);
+    } catch (err: unknown) {
+      setErrorBanner(err instanceof Error ? err.message : 'Failed to publish form version.');
+      setTimeout(() => setErrorBanner(null), 8000);
+    } finally {
+      setIsPublishing(false);
     }
   };
 
@@ -283,13 +330,48 @@ export const SmartFormsView: React.FC = () => {
                 <input
                   type="text"
                   value={activeForm.title}
+                  disabled={isViewingHistoricalVersion}
                   onChange={(e) => updateActiveFormMeta({ title: e.target.value })}
                   aria-label="Form Title"
-                  className="text-sm font-extrabold bg-transparent border-b border-transparent hover:border-slate-300 focus:border-[#2563EB] focus:outline-none text-[#0F172A] dark:text-white truncate"
+                  className="text-sm font-extrabold bg-transparent border-b border-transparent hover:border-slate-300 focus:border-[#2563EB] focus:outline-none text-[#0F172A] dark:text-white truncate disabled:opacity-70"
                 />
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold">
-                  {activeForm.status}
+                <span
+                  data-testid="smartform-version-badge"
+                  className={`text-[10px] font-mono px-2.5 py-0.5 rounded-full font-bold whitespace-nowrap ${
+                    currentVersionStatus === 'Published'
+                      ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                      : currentVersionStatus === 'Archived'
+                        ? 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                        : 'bg-amber-500/15 text-amber-700 dark:text-amber-400'
+                  }`}
+                >
+                  {`v${currentVersionNumber} • ${currentVersionStatus}`}
                 </span>
+
+                {formVersions.length > 0 && (
+                  <div className="flex items-center gap-1.5">
+                    <History className="w-3.5 h-3.5 text-slate-400" />
+                    <label htmlFor="smartform-version-history" className="sr-only">
+                      Version History
+                    </label>
+                    <select
+                      id="smartform-version-history"
+                      data-testid="smartform-version-selector"
+                      value={selectedVersionId || ''}
+                      onChange={(e) => selectVersion(e.target.value || null)}
+                      className="px-2 py-1 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-[11px] font-semibold text-[#0F172A] dark:text-slate-200"
+                    >
+                      <option value="">
+                        {`Latest (v${activeForm.latestVersionNumber ?? 1} • ${activeForm.latestVersionStatus ?? activeForm.status})`}
+                      </option>
+                      {formVersions.map((v) => (
+                        <option key={v.id} value={v.id}>
+                          {`v${v.versionNumber} • ${v.status}${v.publishedBy ? ` (${v.publishedBy})` : ''}`}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
               </div>
 
               <div className="flex items-center gap-2">
@@ -342,13 +424,47 @@ export const SmartFormsView: React.FC = () => {
                 <button
                   type="button"
                   onClick={handleSaveActiveForm}
-                  className="px-3.5 py-2 rounded-xl bg-[#2563EB] hover:bg-blue-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-xs cursor-pointer"
+                  disabled={isViewingHistoricalVersion}
+                  data-testid="save-smartform-btn"
+                  className="px-3.5 py-2 rounded-xl bg-[#2563EB] hover:bg-blue-700 disabled:opacity-40 text-white text-xs font-bold flex items-center gap-1.5 shadow-xs cursor-pointer"
                 >
                   <Save className="w-3.5 h-3.5" />
                   <span>Save Form</span>
                 </button>
+
+                <button
+                  type="button"
+                  onClick={handlePublishVersion}
+                  disabled={!canPublish || isPublishing}
+                  data-testid="publish-smartform-btn"
+                  className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white text-xs font-bold flex items-center gap-1.5 shadow-xs cursor-pointer"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>{isPublishing ? 'Publishing...' : 'Publish Version'}</span>
+                </button>
               </div>
             </div>
+
+            {isViewingHistoricalVersion && inspectedVersion && (
+              <div
+                data-testid="smartform-readonly-version-banner"
+                className="px-5 py-2 bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-900 flex items-center justify-between text-xs text-amber-800 dark:text-amber-300 font-semibold"
+              >
+                <span className="flex items-center gap-2">
+                  <Lock className="w-3.5 h-3.5" />
+                  <span>
+                    {`Viewing immutable snapshot v${inspectedVersion.versionNumber} (${inspectedVersion.status}) in read-only mode.`}
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => selectVersion(null)}
+                  className="px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-bold cursor-pointer"
+                >
+                  Return to Latest
+                </button>
+              </div>
+            )}
 
             {/* Bindings Bar (SmartObject + Workflow Link) */}
             <div className="px-5 py-2.5 bg-slate-50 dark:bg-slate-900/70 border-b border-[#E2E8F0] dark:border-[#1F2937] flex flex-wrap items-center gap-4 text-xs">
@@ -410,7 +526,13 @@ export const SmartFormsView: React.FC = () => {
 
                 {mode === 'preview' ? (
                   <SmartFormRenderer
-                    form={activeForm}
+                    form={
+                      isViewingHistoricalVersion
+                        ? { ...activeForm, fields: displayedFields }
+                        : activeForm
+                    }
+                    forceReadOnly={isViewingHistoricalVersion}
+                    hideSubmitButton={isViewingHistoricalVersion}
                     submitLabel={
                       activeForm.linkedWorkflowKey
                         ? `Submit & Start "${activeForm.linkedWorkflowKey}" Workflow`
@@ -420,7 +542,7 @@ export const SmartFormsView: React.FC = () => {
                   />
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {activeForm.fields.map((fld, idx) => {
+                    {displayedFields.map((fld, idx) => {
                       const isSelected = selectedFieldId === fld.id;
                       const colSpan =
                         fld.width === 'half' && fld.type !== 'section' && fld.type !== 'repeater'

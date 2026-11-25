@@ -3,6 +3,8 @@ import type {
   SmartFormDefinition,
   SmartFormField,
   SmartFormSubmission,
+  SmartFormVersionSummary,
+  SmartFormVersionDetail,
   FormAttachmentValue
 } from '../types/smartform';
 import type { SmartObjectEntity } from '../types/workflow';
@@ -23,6 +25,12 @@ const INITIAL_SMART_FORMS: SmartFormDefinition[] = [
     status: 'Published',
     submissionsCount: 2,
     updatedAt: new Date().toISOString(),
+    version: 1,
+    activePublishedVersionId: 'sfv-purchase-v1',
+    latestVersionNumber: 1,
+    latestVersionId: 'sfv-purchase-v1',
+    latestVersionStatus: 'Published',
+    hasUnpublishedDraft: false,
     fields: [
       {
         id: 'sec-1',
@@ -125,6 +133,12 @@ const INITIAL_SMART_FORMS: SmartFormDefinition[] = [
     status: 'Published',
     submissionsCount: 1,
     updatedAt: new Date().toISOString(),
+    version: 1,
+    activePublishedVersionId: 'sfv-onboarding-v1',
+    latestVersionNumber: 1,
+    latestVersionId: 'sfv-onboarding-v1',
+    latestVersionStatus: 'Published',
+    hasUnpublishedDraft: false,
     fields: [
       {
         id: 'onb-name',
@@ -231,12 +245,19 @@ interface SmartFormStoreState {
   forms: SmartFormDefinition[];
   selectedFormId: string;
   selectedFieldId: string | null;
+  selectedVersionId: string | null;
+  versionsByForm: Record<string, SmartFormVersionSummary[]>;
+  versionDetails: Record<string, SmartFormVersionDetail>;
   submissions: Record<string, SmartFormSubmission[]>;
   isLoading: boolean;
 
   syncForms: () => Promise<void>;
   selectForm: (formId: string) => void;
   selectField: (fieldId: string | null) => void;
+  selectVersion: (versionId: string | null) => void;
+  fetchFormVersions: (formId: string) => Promise<SmartFormVersionSummary[]>;
+  fetchFormVersion: (formId: string, versionId: string) => Promise<SmartFormVersionDetail | null>;
+  publishFormVersion: (formId: string) => Promise<SmartFormDefinition>;
   createForm: (partial: Pick<SmartFormDefinition, 'name' | 'title' | 'description' | 'category' | 'linkedSmartObjectId' | 'linkedWorkflowKey'>) => Promise<SmartFormDefinition>;
   saveForm: (form: SmartFormDefinition) => Promise<void>;
   deleteForm: (formId: string) => Promise<void>;
@@ -255,10 +276,41 @@ interface SmartFormStoreState {
 
 const initialForms = loadDemoForms();
 
+function buildInitialDemoVersions(forms: SmartFormDefinition[]): {
+  versionsByForm: Record<string, SmartFormVersionSummary[]>;
+  versionDetails: Record<string, SmartFormVersionDetail>;
+} {
+  const versionsByForm: Record<string, SmartFormVersionSummary[]> = {};
+  const versionDetails: Record<string, SmartFormVersionDetail> = {};
+  for (const f of forms) {
+    const versionId = f.latestVersionId || f.activePublishedVersionId || `sfv-${f.id}-v1`;
+    const versionNumber = f.latestVersionNumber || 1;
+    const status = f.latestVersionStatus || (f.status === 'Published' ? 'Published' : 'Draft');
+    const detail: SmartFormVersionDetail = {
+      id: versionId,
+      smartFormId: f.id,
+      versionNumber,
+      status,
+      fields: f.fields,
+      publishedAt: status === 'Published' ? f.updatedAt : null,
+      publishedBy: status === 'Published' ? 'system' : null,
+      createdAt: f.updatedAt
+    };
+    versionsByForm[f.id] = [detail];
+    versionDetails[`${f.id}:${versionId}`] = detail;
+  }
+  return { versionsByForm, versionDetails };
+}
+
+const initialVersionState = buildInitialDemoVersions(initialForms);
+
 export const useSmartFormStore = create<SmartFormStoreState>((set, get) => ({
   forms: initialForms,
   selectedFormId: initialForms[0]?.id || '',
   selectedFieldId: initialForms[0]?.fields[0]?.id || null,
+  selectedVersionId: null,
+  versionsByForm: initialVersionState.versionsByForm,
+  versionDetails: initialVersionState.versionDetails,
   submissions: {},
   isLoading: false,
 
@@ -300,24 +352,214 @@ export const useSmartFormStore = create<SmartFormStoreState>((set, get) => ({
     const target = get().forms.find((f) => f.id === formId);
     set({
       selectedFormId: formId,
-      selectedFieldId: target?.fields[0]?.id || null
+      selectedFieldId: target?.fields[0]?.id || null,
+      selectedVersionId: null
     });
+    void get().fetchFormVersions(formId);
   },
 
   selectField: (fieldId) => set({ selectedFieldId: fieldId }),
 
+  selectVersion: (versionId) => {
+    const { selectedFormId } = get();
+    set({ selectedVersionId: versionId });
+    if (versionId && selectedFormId) {
+      void get().fetchFormVersion(selectedFormId, versionId);
+    }
+  },
+
+  fetchFormVersions: async (formId) => {
+    if (!formId) return [];
+    if (repositoryManager.getMode() === 'connected') {
+      const { baseUrl, headers } = getApiConfig();
+      try {
+        const res = await fetch(`${baseUrl}/smartforms/${encodeURIComponent(formId)}/versions`, { headers });
+        if (res.ok) {
+          const list: SmartFormVersionSummary[] = await res.json();
+          set((s) => ({
+            versionsByForm: { ...s.versionsByForm, [formId]: list }
+          }));
+          return list;
+        }
+      } catch {
+        // fallback to local cache
+      }
+    }
+
+    const existing = get().versionsByForm[formId];
+    if (existing && existing.length > 0) return existing;
+
+    const form = get().forms.find((f) => f.id === formId);
+    if (!form) return [];
+
+    const versionId = form.latestVersionId || form.activePublishedVersionId || `sfv-${form.id}-v${form.latestVersionNumber || 1}`;
+    const status = form.latestVersionStatus || (form.status === 'Published' ? 'Published' : 'Draft');
+    const summary: SmartFormVersionDetail = {
+      id: versionId,
+      smartFormId: form.id,
+      versionNumber: form.latestVersionNumber || 1,
+      status,
+      fields: form.draftFields ?? form.fields,
+      publishedAt: status === 'Published' ? form.updatedAt : null,
+      publishedBy: status === 'Published' ? 'system' : null,
+      createdAt: form.updatedAt
+    };
+    set((s) => ({
+      versionsByForm: { ...s.versionsByForm, [formId]: [summary] },
+      versionDetails: { ...s.versionDetails, [`${formId}:${versionId}`]: summary }
+    }));
+    return [summary];
+  },
+
+  fetchFormVersion: async (formId, versionId) => {
+    if (!formId || !versionId) return null;
+    const cacheKey = `${formId}:${versionId}`;
+    const cached = get().versionDetails[cacheKey];
+    if (cached && cached.status !== 'Draft') {
+      return cached;
+    }
+
+    if (repositoryManager.getMode() === 'connected') {
+      const { baseUrl, headers } = getApiConfig();
+      try {
+        const res = await fetch(
+          `${baseUrl}/smartforms/${encodeURIComponent(formId)}/versions/${encodeURIComponent(versionId)}`,
+          { headers }
+        );
+        if (res.ok) {
+          const detail: SmartFormVersionDetail = await res.json();
+          set((s) => ({
+            versionDetails: { ...s.versionDetails, [cacheKey]: detail }
+          }));
+          return detail;
+        }
+      } catch {
+        // fallback to cache
+      }
+    }
+
+    return cached ?? null;
+  },
+
+  publishFormVersion: async (formId) => {
+    const current = get().forms.find((f) => f.id === formId);
+    if (!current) {
+      throw new Error(`Form '${formId}' not found.`);
+    }
+
+    if (repositoryManager.getMode() === 'connected') {
+      const { baseUrl, headers } = getApiConfig();
+      const res = await fetch(`${baseUrl}/smartforms/${encodeURIComponent(formId)}/publish`, {
+        method: 'POST',
+        headers
+      });
+      if (!res.ok) {
+        const errBody = await res.text();
+        let message = `Failed to publish form (${res.status}).`;
+        try {
+          const parsed = JSON.parse(errBody);
+          if (parsed?.error) message = parsed.error;
+        } catch {
+          if (errBody) message = errBody;
+        }
+        throw new Error(message);
+      }
+      const published: SmartFormDefinition = await res.json();
+      set((s) => ({
+        forms: s.forms.map((f) => (f.id === formId ? published : f)),
+        selectedVersionId: null
+      }));
+      await get().fetchFormVersions(formId);
+      return published;
+    }
+
+    // Demo mode publish: archive previous Published version and activate current Draft
+    const now = new Date().toISOString();
+    const existingVersions = get().versionsByForm[formId] || [];
+    const nextVersionNumber = current.latestVersionNumber || 1;
+    const activeDraft = existingVersions.find((v) => v.status === 'Draft');
+    const publishedVersionId = activeDraft?.id || `sfv-${formId}-v${nextVersionNumber}`;
+    const publishedFields = current.draftFields ?? current.fields;
+
+    const updatedVersions: SmartFormVersionSummary[] = existingVersions.map((v) => {
+      if (v.id === publishedVersionId) {
+        return { ...v, status: 'Published', publishedAt: now, publishedBy: 'designer@enterprise.internal' };
+      }
+      if (v.status === 'Published') {
+        return { ...v, status: 'Archived' };
+      }
+      return v;
+    });
+
+    if (!updatedVersions.some((v) => v.id === publishedVersionId)) {
+      updatedVersions.unshift({
+        id: publishedVersionId,
+        smartFormId: formId,
+        versionNumber: nextVersionNumber,
+        status: 'Published',
+        publishedAt: now,
+        publishedBy: 'designer@enterprise.internal',
+        createdAt: now
+      });
+    }
+
+    const publishedDetail: SmartFormVersionDetail = {
+      id: publishedVersionId,
+      smartFormId: formId,
+      versionNumber: nextVersionNumber,
+      status: 'Published',
+      fields: publishedFields,
+      publishedAt: now,
+      publishedBy: 'designer@enterprise.internal',
+      createdAt: activeDraft?.createdAt || now
+    };
+
+    const publishedForm: SmartFormDefinition = {
+      ...current,
+      status: 'Published',
+      fields: publishedFields,
+      draftFields: null,
+      activePublishedVersionId: publishedVersionId,
+      latestVersionId: publishedVersionId,
+      latestVersionNumber: nextVersionNumber,
+      latestVersionStatus: 'Published',
+      hasUnpublishedDraft: false,
+      version: (current.version || 1) + 1,
+      updatedAt: now
+    };
+
+    const updatedForms = get().forms.map((f) => (f.id === formId ? publishedForm : f));
+    saveDemoForms(updatedForms);
+    set((s) => ({
+      forms: updatedForms,
+      selectedVersionId: null,
+      versionsByForm: { ...s.versionsByForm, [formId]: updatedVersions },
+      versionDetails: { ...s.versionDetails, [`${formId}:${publishedVersionId}`]: publishedDetail }
+    }));
+    return publishedForm;
+  },
+
   createForm: async (partial) => {
+    const now = new Date().toISOString();
+    const formId = `form-${Date.now().toString(36)}`;
+    const draftVersionId = `sfv-${formId}-v1`;
     const newForm: SmartFormDefinition = {
-      id: `form-${Date.now().toString(36)}`,
+      id: formId,
       name: partial.name.replace(/\s+/g, ''),
       title: partial.title || partial.name,
       description: partial.description || '',
       category: partial.category || 'General',
       linkedSmartObjectId: partial.linkedSmartObjectId || null,
       linkedWorkflowKey: partial.linkedWorkflowKey || null,
-      status: 'Published',
+      status: 'Draft',
       submissionsCount: 0,
-      updatedAt: new Date().toISOString(),
+      updatedAt: now,
+      version: 1,
+      activePublishedVersionId: null,
+      latestVersionNumber: 1,
+      latestVersionId: draftVersionId,
+      latestVersionStatus: 'Draft',
+      hasUnpublishedDraft: true,
       fields: [
         {
           id: `fld-${Date.now()}`,
@@ -345,8 +587,10 @@ export const useSmartFormStore = create<SmartFormStoreState>((set, get) => ({
           set((s) => ({
             forms: [created, ...s.forms],
             selectedFormId: created.id,
-            selectedFieldId: created.fields[0]?.id || null
+            selectedFieldId: created.fields[0]?.id || null,
+            selectedVersionId: null
           }));
+          void get().fetchFormVersions(created.id);
           return created;
         }
       } catch {
@@ -354,13 +598,27 @@ export const useSmartFormStore = create<SmartFormStoreState>((set, get) => ({
       }
     }
 
+    const v1Detail: SmartFormVersionDetail = {
+      id: draftVersionId,
+      smartFormId: formId,
+      versionNumber: 1,
+      status: 'Draft',
+      fields: newForm.fields,
+      publishedAt: null,
+      publishedBy: null,
+      createdAt: now
+    };
+
     const updated = [newForm, ...get().forms];
     saveDemoForms(updated);
-    set({
+    set((s) => ({
       forms: updated,
       selectedFormId: newForm.id,
-      selectedFieldId: newForm.fields[0]?.id || null
-    });
+      selectedFieldId: newForm.fields[0]?.id || null,
+      selectedVersionId: null,
+      versionsByForm: { ...s.versionsByForm, [formId]: [v1Detail] },
+      versionDetails: { ...s.versionDetails, [`${formId}:${draftVersionId}`]: v1Detail }
+    }));
     return newForm;
   },
 
@@ -396,13 +654,58 @@ export const useSmartFormStore = create<SmartFormStoreState>((set, get) => ({
 
       if (res?.ok) {
         try {
-          const saved = await res.json();
-          if (typeof saved?.version === 'number') {
-            stamped = { ...stamped, version: saved.version };
-          }
+          const saved: SmartFormDefinition = await res.json();
+          stamped = {
+            ...stamped,
+            ...saved,
+            fields: saved.draftFields ?? saved.fields ?? stamped.fields
+          };
+          void get().fetchFormVersions(stamped.id);
         } catch {
           // keep local copy when the body cannot be parsed
         }
+      }
+    } else {
+      // Demo mode: create a new Draft version if the latest version is Published
+      const existingVersions = get().versionsByForm[stamped.id] || [];
+      const existingDraft = existingVersions.find((v) => v.status === 'Draft');
+      if (existingDraft) {
+        const updatedDetail: SmartFormVersionDetail = {
+          ...existingDraft,
+          fields: stamped.fields
+        };
+        set((s) => ({
+          versionDetails: { ...s.versionDetails, [`${stamped.id}:${existingDraft.id}`]: updatedDetail }
+        }));
+      } else {
+        const nextNum = (stamped.latestVersionNumber || 1) + 1;
+        const nextId = `sfv-${stamped.id}-v${nextNum}`;
+        const newDraft: SmartFormVersionDetail = {
+          id: nextId,
+          smartFormId: stamped.id,
+          versionNumber: nextNum,
+          status: 'Draft',
+          fields: stamped.fields,
+          publishedAt: null,
+          publishedBy: null,
+          createdAt: stamped.updatedAt
+        };
+        stamped = {
+          ...stamped,
+          latestVersionNumber: nextNum,
+          latestVersionId: nextId,
+          latestVersionStatus: 'Draft',
+          hasUnpublishedDraft: true,
+          draftFields: stamped.fields,
+          version: (stamped.version || 1) + 1
+        };
+        set((s) => ({
+          versionsByForm: {
+            ...s.versionsByForm,
+            [stamped.id]: [newDraft, ...existingVersions]
+          },
+          versionDetails: { ...s.versionDetails, [`${stamped.id}:${nextId}`]: newDraft }
+        }));
       }
     }
 
@@ -509,41 +812,63 @@ export const useSmartFormStore = create<SmartFormStoreState>((set, get) => ({
 
   addFieldToActiveForm: (field) => {
     const { selectedFormId, forms } = get();
-    const updated = forms.map((f) =>
-      f.id === selectedFormId
-        ? { ...f, fields: [...f.fields, field], updatedAt: new Date().toISOString() }
-        : f
-    );
+    const updated = forms.map((f) => {
+      if (f.id !== selectedFormId) return f;
+      const nextFields = [...f.fields, field];
+      const alreadyDraft = f.hasUnpublishedDraft || f.latestVersionStatus === 'Draft';
+      const nextNum = alreadyDraft ? (f.latestVersionNumber || 1) : (f.latestVersionNumber || 1) + 1;
+      return {
+        ...f,
+        fields: nextFields,
+        draftFields: nextFields,
+        latestVersionNumber: nextNum,
+        latestVersionStatus: 'Draft' as const,
+        hasUnpublishedDraft: true,
+        updatedAt: new Date().toISOString()
+      };
+    });
     saveDemoForms(updated);
     set({ forms: updated, selectedFieldId: field.id });
   },
 
   updateFieldInActiveForm: (fieldId, updates) => {
     const { selectedFormId, forms } = get();
-    const updated = forms.map((f) =>
-      f.id === selectedFormId
-        ? {
-            ...f,
-            fields: f.fields.map((fld) => (fld.id === fieldId ? { ...fld, ...updates } : fld)),
-            updatedAt: new Date().toISOString()
-          }
-        : f
-    );
+    const updated = forms.map((f) => {
+      if (f.id !== selectedFormId) return f;
+      const nextFields = f.fields.map((fld) => (fld.id === fieldId ? { ...fld, ...updates } : fld));
+      const alreadyDraft = f.hasUnpublishedDraft || f.latestVersionStatus === 'Draft';
+      const nextNum = alreadyDraft ? (f.latestVersionNumber || 1) : (f.latestVersionNumber || 1) + 1;
+      return {
+        ...f,
+        fields: nextFields,
+        draftFields: nextFields,
+        latestVersionNumber: nextNum,
+        latestVersionStatus: 'Draft' as const,
+        hasUnpublishedDraft: true,
+        updatedAt: new Date().toISOString()
+      };
+    });
     saveDemoForms(updated);
     set({ forms: updated });
   },
 
   removeFieldFromActiveForm: (fieldId) => {
     const { selectedFormId, forms, selectedFieldId } = get();
-    const updated = forms.map((f) =>
-      f.id === selectedFormId
-        ? {
-            ...f,
-            fields: f.fields.filter((fld) => fld.id !== fieldId),
-            updatedAt: new Date().toISOString()
-          }
-        : f
-    );
+    const updated = forms.map((f) => {
+      if (f.id !== selectedFormId) return f;
+      const nextFields = f.fields.filter((fld) => fld.id !== fieldId);
+      const alreadyDraft = f.hasUnpublishedDraft || f.latestVersionStatus === 'Draft';
+      const nextNum = alreadyDraft ? (f.latestVersionNumber || 1) : (f.latestVersionNumber || 1) + 1;
+      return {
+        ...f,
+        fields: nextFields,
+        draftFields: nextFields,
+        latestVersionNumber: nextNum,
+        latestVersionStatus: 'Draft' as const,
+        hasUnpublishedDraft: true,
+        updatedAt: new Date().toISOString()
+      };
+    });
     saveDemoForms(updated);
     const active = updated.find((f) => f.id === selectedFormId);
     set({

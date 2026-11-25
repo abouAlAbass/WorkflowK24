@@ -106,11 +106,27 @@ public class WorkflowTaskHandlers
 
             if (!string.IsNullOrWhiteSpace(approvalData?.FormId))
             {
-                var boundForm = await _smartFormRepository.GetByIdAsync(approvalData.FormId, ct);
-                if (boundForm != null)
+                string? targetFieldsJson = null;
+
+                if (!string.IsNullOrWhiteSpace(instance.SmartFormVersionId))
+                {
+                    var pinnedVersion = await _smartFormRepository.GetVersionByIdAsync(
+                        approvalData.FormId,
+                        instance.SmartFormVersionId,
+                        ct);
+                    targetFieldsJson = pinnedVersion?.FieldsJson;
+                }
+
+                if (targetFieldsJson == null)
+                {
+                    var boundForm = await _smartFormRepository.GetByIdAsync(approvalData.FormId, ct);
+                    targetFieldsJson = boundForm?.GetActivePublishedVersion()?.FieldsJson ?? boundForm?.FieldsJson;
+                }
+
+                if (targetFieldsJson != null)
                 {
                     var patchValidation = _formValidationEngine.ValidatePatch(
-                        boundForm.FieldsJson,
+                        targetFieldsJson,
                         command.FormPatch,
                         mergedVariables);
 
@@ -282,6 +298,7 @@ public class WorkflowTaskHandlers
 
         string formMode = NormalizeFormMode(approvalData?.FormMode);
         Dictionary<string, object?> formData = ParseVariablesDictionary(t.Instance?.ContextVariablesJson);
+        string? formVersionId = t.Instance?.SmartFormVersionId;
 
         return new WorkflowTaskDto(
             t.TaskId,
@@ -303,7 +320,8 @@ public class WorkflowTaskHandlers
             formId,
             formMode,
             formData,
-            t.Version
+            t.Version,
+            formVersionId
         );
     }
 

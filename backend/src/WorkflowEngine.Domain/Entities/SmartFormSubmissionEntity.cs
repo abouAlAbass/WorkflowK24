@@ -7,6 +7,7 @@ public class SmartFormSubmissionEntity
 {
     public string Id { get; private set; } = string.Empty;
     public string SmartFormId { get; private set; } = string.Empty;
+    public string? SmartFormVersionId { get; private set; }
     public string SubmittedBy { get; private set; } = string.Empty;
     public string DataJson { get; private set; } = "{}";
     public string? LinkedInstanceId { get; private set; }
@@ -21,10 +22,12 @@ public class SmartFormSubmissionEntity
         string submittedBy,
         string dataJson,
         string? linkedInstanceId = null,
-        string? idempotencyKey = null)
+        string? idempotencyKey = null,
+        string? smartFormVersionId = null)
     {
         Id = string.IsNullOrWhiteSpace(id) ? $"sub-{Guid.NewGuid():N}" : id;
         SmartFormId = !string.IsNullOrWhiteSpace(smartFormId) ? smartFormId : throw new ArgumentException("SmartFormId is required", nameof(smartFormId));
+        SmartFormVersionId = string.IsNullOrWhiteSpace(smartFormVersionId) ? null : smartFormVersionId.Trim();
         SubmittedBy = !string.IsNullOrWhiteSpace(submittedBy) ? submittedBy : "anonymous";
         DataJson = !string.IsNullOrWhiteSpace(dataJson) ? dataJson : "{}";
         LinkedInstanceId = linkedInstanceId;

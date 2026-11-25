@@ -18,6 +18,7 @@ using WorkflowEngine.Application.Features.SmartForms.Handlers;
 using WorkflowEngine.Application.Features.SmartForms.Validation;
 using WorkflowEngine.Domain.Entities;
 using WorkflowEngine.Domain.Enums;
+using WorkflowEngine.Domain.Exceptions;
 using WorkflowEngine.Domain.Repositories;
 
 namespace WorkflowEngine.Api.Endpoints;
@@ -68,6 +69,7 @@ public static class SmartFormEndpoints
 
         formsGroup.MapPost("/", async (
             CreateSmartFormCommand command,
+            ClaimsPrincipal principal,
             IValidator<CreateSmartFormCommand> validator,
             IMessageBus bus,
             CancellationToken ct) =>
@@ -78,10 +80,19 @@ public static class SmartFormEndpoints
                 return Results.ValidationProblem(validation.ToDictionary());
             }
 
+            var caller = ExtractCallerIdentity(principal);
+            string publishedBy = !string.IsNullOrWhiteSpace(caller.CurrentUserId) ? caller.CurrentUserId : "system";
+
             try
             {
-                var created = await bus.InvokeAsync<SmartFormDto>(command, ct);
+                var created = await bus.InvokeAsync<SmartFormDto>(command with { PublishedBy = publishedBy }, ct);
                 return Results.Created($"/api/smartforms/{created.Id}", created);
+            }
+            catch (SmartFormVersionImmutableException ex)
+            {
+                return Results.Json(
+                    new { code = SmartFormVersionImmutableException.ErrorCode, error = ex.Message },
+                    statusCode: StatusCodes.Status409Conflict);
             }
             catch (ConcurrencyConflictException ex)
             {
@@ -94,7 +105,7 @@ public static class SmartFormEndpoints
         })
         .RequireAuthorization("DesignerOrAdmin")
         .WithName("CreateSmartForm")
-        .WithSummary("Creates or publishes a SmartForm schema.");
+        .WithSummary("Creates a SmartForm schema with initial version 1 (Draft by default, or Published when publishImmediately=true).");
 
         formsGroup.MapPut("/{id}", async (
             string id,
@@ -114,6 +125,12 @@ public static class SmartFormEndpoints
                 var updated = await bus.InvokeAsync<SmartFormDto?>(command with { Id = id }, ct);
                 return updated != null ? Results.Ok(updated) : Results.NotFound();
             }
+            catch (SmartFormVersionImmutableException ex)
+            {
+                return Results.Json(
+                    new { code = SmartFormVersionImmutableException.ErrorCode, error = ex.Message },
+                    statusCode: StatusCodes.Status409Conflict);
+            }
             catch (ConcurrencyConflictException ex)
             {
                 return ConcurrencyConflict(ex.Message);
@@ -125,7 +142,60 @@ public static class SmartFormEndpoints
         })
         .RequireAuthorization("DesignerOrAdmin")
         .WithName("UpdateSmartForm")
-        .WithSummary("Updates an existing SmartForm schema and bindings.");
+        .WithSummary("Updates the current Draft version (or creates a new Draft version if the latest version is Published).");
+
+        formsGroup.MapPost("/{id}/publish", async (
+            string id,
+            ClaimsPrincipal principal,
+            IMessageBus bus,
+            CancellationToken ct) =>
+        {
+            var caller = ExtractCallerIdentity(principal);
+            string publishedBy = !string.IsNullOrWhiteSpace(caller.CurrentUserId) ? caller.CurrentUserId : "system";
+
+            try
+            {
+                var published = await bus.InvokeAsync<SmartFormDto?>(new PublishSmartFormCommand(id, publishedBy), ct);
+                return published != null ? Results.Ok(published) : Results.NotFound();
+            }
+            catch (SmartFormVersionImmutableException ex)
+            {
+                return Results.Json(
+                    new { code = SmartFormVersionImmutableException.ErrorCode, error = ex.Message },
+                    statusCode: StatusCodes.Status409Conflict);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Json(
+                    new { code = "NO_DRAFT_TO_PUBLISH", error = ex.Message },
+                    statusCode: StatusCodes.Status409Conflict);
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                return ConcurrencyConflict($"SmartForm '{id}' was modified concurrently during publish. Reload and retry.");
+            }
+        })
+        .RequireAuthorization("DesignerOrAdmin")
+        .WithName("PublishSmartForm")
+        .WithSummary("Publishes the current Draft SmartFormVersion, archives any previous Published version, and activates the new version.");
+
+        formsGroup.MapGet("/{id}/versions", async (string id, IMessageBus bus, CancellationToken ct) =>
+        {
+            var versions = await bus.InvokeAsync<IReadOnlyList<SmartFormVersionSummaryDto>?>(
+                new GetSmartFormVersionsQuery(id), ct);
+            return versions != null ? Results.Ok(versions) : Results.NotFound();
+        })
+        .WithName("GetSmartFormVersions")
+        .WithSummary("Lists all versions (Draft, Published, Archived) of a SmartForm.");
+
+        formsGroup.MapGet("/{id}/versions/{versionId}", async (string id, string versionId, IMessageBus bus, CancellationToken ct) =>
+        {
+            var version = await bus.InvokeAsync<SmartFormVersionDetailDto?>(
+                new GetSmartFormVersionByIdQuery(id, versionId), ct);
+            return version != null ? Results.Ok(version) : Results.NotFound();
+        })
+        .WithName("GetSmartFormVersionById")
+        .WithSummary("Retrieves the immutable schema snapshot of a specific SmartFormVersion.");
 
         formsGroup.MapDelete("/{id}", async (string id, IMessageBus bus, CancellationToken ct) =>
         {
@@ -216,6 +286,12 @@ public static class SmartFormEndpoints
                 catch (KeyNotFoundException ex)
                 {
                     return Results.NotFound(new { error = ex.Message });
+                }
+                catch (SmartFormNotPublishedException ex)
+                {
+                    return Results.Json(
+                        new { code = SmartFormNotPublishedException.ErrorCode, error = ex.Message },
+                        statusCode: StatusCodes.Status422UnprocessableEntity);
                 }
                 catch (SmartFormValidationFailedException ex)
                 {

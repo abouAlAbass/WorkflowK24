@@ -63,6 +63,10 @@ public class WorkflowInstanceConfiguration : IEntityTypeConfiguration<WorkflowIn
         builder.Property(i => i.ExecutionStackJson)
             .IsRequired(false);
 
+        builder.Property(i => i.SmartFormVersionId)
+            .HasMaxLength(100)
+            .IsRequired(false);
+
         builder.Property(i => i.StartedAt)
             .IsRequired();
 

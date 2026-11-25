@@ -6,6 +6,8 @@ public interface ISmartFormRepository
 {
     Task<IReadOnlyList<SmartFormEntity>> GetAllAsync(CancellationToken ct = default);
     Task<SmartFormEntity?> GetByIdAsync(string id, CancellationToken ct = default);
+    Task<IReadOnlyList<SmartFormVersion>> GetVersionsAsync(string smartFormId, CancellationToken ct = default);
+    Task<SmartFormVersion?> GetVersionByIdAsync(string smartFormId, string versionId, CancellationToken ct = default);
     Task AddAsync(SmartFormEntity form, CancellationToken ct = default);
     Task UpdateAsync(SmartFormEntity form, CancellationToken ct = default);
     Task<bool> DeleteAsync(string id, CancellationToken ct = default);
