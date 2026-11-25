@@ -17,6 +17,7 @@ import {
   FileText
 } from 'lucide-react';
 import { useWorkflowStore } from '../../hooks/useWorkflowStore';
+import { useSmartFormStore } from '../../store/useSmartFormStore';
 import type { SmartObjectField, SmartObjectCategory, SmartObjectRecord } from '../../types/workflow';
 
 export const DataModelsView: React.FC = () => {
@@ -31,8 +32,10 @@ export const DataModelsView: React.FC = () => {
     fetchSmartObjectRecords,
     addSmartObjectRecord,
     updateSmartObjectRecord,
-    deleteSmartObjectRecord
+    deleteSmartObjectRecord,
+    setCurrentTab
   } = useWorkflowStore();
+  const generateFromSmartObject = useSmartFormStore((s) => s.generateFromSmartObject);
 
   const [selectedSOId, setSelectedSOId] = useState<string>(smartObjects[0]?.id || '');
   const [activeTab, setActiveTab] = useState<'schema' | 'records'>('schema');
@@ -246,14 +249,31 @@ export const DataModelsView: React.FC = () => {
           </p>
         </div>
 
-        <button 
-          onClick={openCreateEntity}
-          data-testid="create-smartobject-btn"
-          className="px-4 py-2 bg-[#2563EB] hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md cursor-pointer transition-all active:scale-95"
-        >
-          <Plus className="w-4 h-4" />
-          <span>New SmartObject Entity</span>
-        </button>
+        <div className="flex items-center gap-2">
+          {selectedSO && (
+            <button
+              type="button"
+              onClick={async () => {
+                await generateFromSmartObject(selectedSO);
+                setCurrentTab('smartforms');
+              }}
+              data-testid="generate-smartform-from-datamodel-btn"
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md cursor-pointer transition-all active:scale-95"
+            >
+              <Sparkles className="w-4 h-4" />
+              <span>Generate SmartForm</span>
+            </button>
+          )}
+
+          <button 
+            onClick={openCreateEntity}
+            data-testid="create-smartobject-btn"
+            className="px-4 py-2 bg-[#2563EB] hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md cursor-pointer transition-all active:scale-95"
+          >
+            <Plus className="w-4 h-4" />
+            <span>New SmartObject Entity</span>
+          </button>
+        </div>
       </div>
 
       {/* Main Grid Workspace */}

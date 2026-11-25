@@ -14,4 +14,5 @@ public interface IWorkflowDefinitionRepository
     Task<IReadOnlyList<WorkflowDefinition>> GetAllAsync(CancellationToken ct = default);
     void Add(WorkflowDefinition definition);
     void Update(WorkflowDefinition definition);
+    Task<bool> DeleteByKeyAsync(string workflowKey, CancellationToken ct = default);
 }

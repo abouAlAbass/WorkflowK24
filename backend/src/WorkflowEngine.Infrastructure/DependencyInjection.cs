@@ -72,13 +72,18 @@ public static class DependencyInjection
         services.AddScoped<IWorkflowTaskRepository, WorkflowTaskRepository>();
         services.AddScoped<IWorkflowAuditRepository, WorkflowAuditRepository>();
         services.AddScoped<IWorkflowErrorRepository, WorkflowErrorRepository>();
+        services.AddScoped<IInstanceEventRepository, InstanceEventRepository>();
+        services.AddScoped<INodeExecutionRepository, NodeExecutionRepository>();
+        services.AddScoped<ICommandLogRepository, CommandLogRepository>();
         services.AddScoped<ISmartObjectRepository, SmartObjectRepository>();
+        services.AddScoped<ISmartFormRepository, SmartFormRepository>();
         services.AddScoped<ISystemUserRepository, SystemUserRepository>();
         services.AddScoped<ISystemSettingRepository, SystemSettingRepository>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
 
         // External services
-        services.AddScoped<IEmailService, LoggingEmailService>();
+        services.AddScoped<IEmailService, SmtpEmailService>();
+        services.AddSingleton<IBlobStorageService, LocalBlobStorageService>();
 
         return services;
     }

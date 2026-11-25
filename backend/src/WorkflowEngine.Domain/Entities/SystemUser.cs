@@ -1,3 +1,5 @@
+using WorkflowEngine.Domain.Security;
+
 namespace WorkflowEngine.Domain.Entities;
 
 /// <summary>
@@ -8,6 +10,7 @@ public class SystemUser
     public string Id { get; private set; } = string.Empty;
     public string Name { get; private set; } = string.Empty;
     public string Email { get; private set; } = string.Empty;
+    public string PasswordHash { get; private set; } = string.Empty;
     public string Role { get; private set; } = "End User";
     public string Group { get; private set; } = "General";
     public string Status { get; private set; } = "Active";
@@ -24,7 +27,8 @@ public class SystemUser
         string role = "End User",
         string group = "General",
         string status = "Active",
-        string? avatarUrl = null)
+        string? avatarUrl = null,
+        string? passwordHash = null)
     {
         Id = !string.IsNullOrWhiteSpace(id) ? id : $"usr-{Guid.NewGuid():N}";
         Name = !string.IsNullOrWhiteSpace(name) ? name : throw new ArgumentException("Name is required", nameof(name));
@@ -33,8 +37,20 @@ public class SystemUser
         Group = !string.IsNullOrWhiteSpace(group) ? group : "General";
         Status = !string.IsNullOrWhiteSpace(status) ? status : "Active";
         AvatarUrl = avatarUrl ?? "/avatars/user-2.svg";
+        PasswordHash = passwordHash ?? string.Empty;
         CreatedAt = DateTime.UtcNow;
         UpdatedAt = DateTime.UtcNow;
+    }
+
+    public void SetPassword(string plainTextPassword)
+    {
+        PasswordHash = PasswordHasher.HashPassword(plainTextPassword);
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    public bool VerifyPassword(string plainTextPassword)
+    {
+        return PasswordHasher.VerifyPassword(plainTextPassword, PasswordHash);
     }
 
     public void UpdateProfile(string name, string role, string group, string status, string? avatarUrl = null)

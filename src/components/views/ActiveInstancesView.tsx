@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
-import { Activity, CheckCircle2, Clock, AlertTriangle, Search, Play } from 'lucide-react';
+import { Activity, CheckCircle2, Clock, AlertTriangle, Search, Play, PauseCircle, XCircle, Eye } from 'lucide-react';
 import { useWorkflowStore } from '../../hooks/useWorkflowStore';
 import type { InstanceStatus } from '../../types/workflow';
+import { InstanceViewFlowPanel } from './InstanceViewFlowPanel';
 
 export const ActiveInstancesView: React.FC = () => {
-  const { activeInstances, setCurrentTab, loadTemplate } = useWorkflowStore();
+  const { activeInstances, setCurrentTab, loadTemplate, syncDataFromRepository } = useWorkflowStore();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
+  const [selectedInstanceId, setSelectedInstanceId] = useState<string | null>(null);
 
   const filteredInstances = activeInstances.filter(inst => {
     const matchesSearch = inst.workflowName.toLowerCase().includes(search.toLowerCase()) || 
@@ -33,17 +35,32 @@ export const ActiveInstancesView: React.FC = () => {
           </span>
         );
       case 'FAILED':
+      case 'FAULTED':
         return (
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-red-50 dark:bg-red-950/60 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800">
             <AlertTriangle className="w-3 h-3" />
-            FAILED
+            {status}
+          </span>
+        );
+      case 'SUSPENDED':
+        return (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800">
+            <PauseCircle className="w-3 h-3" />
+            SUSPENDED
+          </span>
+        );
+      case 'CANCELLED':
+        return (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-300 dark:border-slate-700">
+            <XCircle className="w-3 h-3" />
+            CANCELLED
           </span>
         );
       default:
         return (
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800">
             <Clock className="w-3 h-3" />
-            PENDING
+            {status}
           </span>
         );
     }
@@ -177,16 +194,27 @@ export const ActiveInstancesView: React.FC = () => {
                     {renderStatusBadge(inst.status)}
                   </td>
 
-                  <td className="py-4 px-3 text-right">
-                    <button
-                      onClick={() => {
-                        loadTemplate(inst.templateKey === 'custom' ? 'onboarding' : inst.templateKey);
-                        setCurrentTab('designer');
-                      }}
-                      className="px-3 py-1.5 rounded-xl border border-[#E2E8F0] dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-[#0F172A] dark:text-slate-200 font-bold text-xs shadow-2xs transition-colors cursor-pointer"
-                    >
-                      Inspect Graph
-                    </button>
+                  <td className="py-4 px-3 text-end">
+                    <div className="inline-flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedInstanceId(inst.id)}
+                        className="px-3 py-1.5 rounded-xl bg-[#2563EB] hover:bg-blue-700 text-white font-bold text-xs shadow-2xs inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        ViewFlow
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          loadTemplate(inst.templateKey === 'custom' ? 'onboarding' : inst.templateKey);
+                          setCurrentTab('designer');
+                        }}
+                        className="px-3 py-1.5 rounded-xl border border-[#E2E8F0] dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-[#0F172A] dark:text-slate-200 font-bold text-xs shadow-2xs transition-colors cursor-pointer"
+                      >
+                        Inspect Graph
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -194,6 +222,17 @@ export const ActiveInstancesView: React.FC = () => {
           </table>
         </div>
       </div>
+
+      {/* ViewFlow & Operational Controls Panel */}
+      {selectedInstanceId && (
+        <InstanceViewFlowPanel
+          instanceId={selectedInstanceId}
+          onClose={() => setSelectedInstanceId(null)}
+          onStatusChanged={() => {
+            void syncDataFromRepository();
+          }}
+        />
+      )}
     </div>
   );
 };

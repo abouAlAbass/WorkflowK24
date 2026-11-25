@@ -43,7 +43,6 @@ public class SmartObjectConfiguration : IEntityTypeConfiguration<SmartObjectEnti
             .IsRequired();
 
         builder.Property(s => s.FieldsJson)
-            .HasColumnType("text")
             .HasDefaultValue("[]")
             .IsRequired();
 

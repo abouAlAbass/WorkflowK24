@@ -14,8 +14,14 @@ public class WorkflowEngineDbContext : DbContext
     public DbSet<WorkflowTask> WorkflowTasks => Set<WorkflowTask>();
     public DbSet<WorkflowError> WorkflowInstanceErrors => Set<WorkflowError>();
     public DbSet<WorkflowAuditLog> WorkflowAuditLogs => Set<WorkflowAuditLog>();
+    public DbSet<InstanceEvent> InstanceEvents => Set<InstanceEvent>();
+    public DbSet<NodeExecution> NodeExecutions => Set<NodeExecution>();
+    public DbSet<CommandLog> CommandLogs => Set<CommandLog>();
     public DbSet<SmartObjectEntity> SmartObjects => Set<SmartObjectEntity>();
     public DbSet<SmartObjectRecordEntity> SmartObjectRecords => Set<SmartObjectRecordEntity>();
+    public DbSet<SmartFormEntity> SmartForms => Set<SmartFormEntity>();
+    public DbSet<SmartFormSubmissionEntity> SmartFormSubmissions => Set<SmartFormSubmissionEntity>();
+    public DbSet<FormAttachmentEntity> FormAttachments => Set<FormAttachmentEntity>();
     public DbSet<SystemUser> SystemUsers => Set<SystemUser>();
     public DbSet<SystemSetting> SystemSettings => Set<SystemSetting>();
 

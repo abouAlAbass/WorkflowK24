@@ -22,7 +22,13 @@ public class JwtTokenService : IJwtTokenService
 
     public string GenerateToken(string userId, string email, string role, string group)
     {
-        var secretKey = _configuration["Jwt:SecretKey"] ?? "WorkflowEngine_SuperSecretSecurityKey_AtLeast32BytesLong!";
+        var secretKey = _configuration["Jwt:SecretKey"];
+        if (string.IsNullOrWhiteSpace(secretKey) || Encoding.UTF8.GetByteCount(secretKey) < 32)
+        {
+            throw new InvalidOperationException(
+                "JWT secret key is missing or shorter than 32 bytes. Configure 'Jwt:SecretKey' via environment variables or secret store.");
+        }
+
         var issuer = _configuration["Jwt:Issuer"] ?? "WorkflowEngine.Api";
         var audience = _configuration["Jwt:Audience"] ?? "WorkflowEngine.Frontend";
 

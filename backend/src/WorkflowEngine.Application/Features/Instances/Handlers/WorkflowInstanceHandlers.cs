@@ -35,28 +35,8 @@ public class WorkflowInstanceHandlers
 
     public async Task<WorkflowInstanceStartedResult> Handle(StartWorkflowInstanceCommand command, CancellationToken ct)
     {
-        var activeVersion = await _definitionRepository.GetActiveVersionByKeyAsync(command.WorkflowKey, ct);
-        if (activeVersion == null)
-        {
-            throw new InvalidOperationException($"No active workflow version found for key '{command.WorkflowKey}'.");
-        }
-
-        string instanceId = $"wf-inst-{DateTime.UtcNow:yyyyMMddHHmmss}-{Guid.NewGuid():N}"[..32];
-        string? variablesJson = command.TriggerVariables != null ? JsonSerializer.Serialize(command.TriggerVariables) : null;
-
-        var instance = new WorkflowInstance(instanceId, activeVersion.VersionId, command.WorkflowKey, command.InitiatorId, variablesJson);
-        _instanceRepository.Add(instance);
-
-        // Deserialize React Flow Graph & Execute Start/Trigger Node
-        var graph = JsonSerializer.Deserialize<ReactFlowGraph>(activeVersion.GraphJson);
-        if (graph != null)
-        {
-            var triggerNode = graph.Nodes.FirstOrDefault(n => n.Data.NodeType.Equals("trigger", StringComparison.OrdinalIgnoreCase));
-            if (triggerNode != null)
-            {
-                await _executionEngine.ExecuteNodeLogicAsync(instance, graph, triggerNode.Id, ct);
-            }
-        }
+        var starter = new WorkflowInstanceStarter(_definitionRepository, _instanceRepository, _executionEngine);
+        var instance = await starter.StartAsync(command.WorkflowKey, command.InitiatorId, command.TriggerVariables, ct);
 
         await _unitOfWork.SaveChangesAsync(ct);
         return new WorkflowInstanceStartedResult(instance.InstanceId, instance.Status.ToString(), instance.CurrentNodeId, instance.StartedAt);
@@ -87,8 +67,54 @@ public class WorkflowInstanceHandlers
     public async Task<IReadOnlyList<WorkflowInstanceDto>> Handle(GetWorkflowInstancesQuery query, CancellationToken ct)
     {
         var instances = await _instanceRepository.GetAllAsync(query.Status, ct);
+        return instances.Select(MapInstanceToDto).ToList();
+    }
 
-        return instances.Select(i => new WorkflowInstanceDto(
+    public async Task<WorkflowInstanceDto?> Handle(GetWorkflowInstanceByIdQuery query, CancellationToken ct)
+    {
+        var instance = await _instanceRepository.GetByIdAsync(query.InstanceId, ct);
+        return instance != null ? MapInstanceToDto(instance) : null;
+    }
+
+    private static WorkflowInstanceDto MapInstanceToDto(WorkflowInstance i)
+    {
+        string workflowName = i.WorkflowVersion?.Definition?.Name ?? i.WorkflowKey;
+        string? currentNodeLabel = i.CurrentNodeId;
+        int totalNodes = 0;
+
+        if (!string.IsNullOrWhiteSpace(i.WorkflowVersion?.GraphJson))
+        {
+            try
+            {
+                var graph = JsonSerializer.Deserialize<ReactFlowGraph>(i.WorkflowVersion.GraphJson);
+                if (graph != null)
+                {
+                    totalNodes = graph.Nodes.Count;
+                    var matchingNode = graph.Nodes.FirstOrDefault(n => n.Id == i.CurrentNodeId);
+                    if (matchingNode != null && !string.IsNullOrWhiteSpace(matchingNode.Data.Label))
+                    {
+                        currentNodeLabel = matchingNode.Data.Label;
+                    }
+                }
+            }
+            catch
+            {
+                // Ignore malformed graph metadata during read projection
+            }
+        }
+
+        int progress = i.Status switch
+        {
+            WorkflowStatus.Completed => 100,
+            WorkflowStatus.Cancelled => 0,
+            _ => CalculateRunningProgress(i, totalNodes)
+        };
+
+        DateTime endRef = i.CompletedAt ?? DateTime.UtcNow;
+        double durationSeconds = Math.Max(0, (endRef - i.StartedAt).TotalSeconds);
+        string department = ExtractDepartment(i.ContextVariablesJson, i.WorkflowVersion?.Definition?.Category);
+
+        return new WorkflowInstanceDto(
             i.InstanceId,
             i.VersionId,
             i.WorkflowKey,
@@ -99,27 +125,51 @@ public class WorkflowInstanceHandlers
             i.ContextVariablesJson,
             i.StartedAt,
             i.CompletedAt,
-            i.LastUpdatedAt
-        )).ToList();
+            i.LastUpdatedAt,
+            workflowName,
+            currentNodeLabel,
+            progress,
+            durationSeconds,
+            department
+        );
     }
 
-    public async Task<WorkflowInstanceDto?> Handle(GetWorkflowInstanceByIdQuery query, CancellationToken ct)
+    private static int CalculateRunningProgress(WorkflowInstance instance, int totalNodes)
     {
-        var instance = await _instanceRepository.GetByIdAsync(query.InstanceId, ct);
-        if (instance == null) return null;
+        if (totalNodes <= 1) return 50;
+        int visitedNodes = instance.AuditLogs
+            .Where(l => !string.IsNullOrWhiteSpace(l.NodeId))
+            .Select(l => l.NodeId)
+            .Distinct()
+            .Count();
 
-        return new WorkflowInstanceDto(
-            instance.InstanceId,
-            instance.VersionId,
-            instance.WorkflowKey,
-            instance.Status.ToString(),
-            instance.CurrentNodeId,
-            instance.CurrentNodeType,
-            instance.InitiatorId,
-            instance.ContextVariablesJson,
-            instance.StartedAt,
-            instance.CompletedAt,
-            instance.LastUpdatedAt
-        );
+        int pct = (int)Math.Round((double)Math.Max(1, visitedNodes) / totalNodes * 100);
+        return Math.Clamp(pct, 10, 95);
+    }
+
+    private static string ExtractDepartment(string? variablesJson, string? fallbackCategory)
+    {
+        if (!string.IsNullOrWhiteSpace(variablesJson))
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(variablesJson);
+                foreach (var prop in doc.RootElement.EnumerateObject())
+                {
+                    if (string.Equals(prop.Name, "department", StringComparison.OrdinalIgnoreCase) &&
+                        prop.Value.ValueKind == JsonValueKind.String)
+                    {
+                        var val = prop.Value.GetString();
+                        if (!string.IsNullOrWhiteSpace(val)) return val;
+                    }
+                }
+            }
+            catch
+            {
+                // Ignore
+            }
+        }
+
+        return !string.IsNullOrWhiteSpace(fallbackCategory) ? fallbackCategory : "Operations";
     }
 }

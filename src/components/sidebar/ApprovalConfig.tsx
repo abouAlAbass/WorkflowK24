@@ -5,10 +5,12 @@ import {
   Plus, 
   Trash2, 
   Sliders, 
-  Info 
+  Info,
+  FileSpreadsheet
 } from 'lucide-react';
 import type { WorkflowNodeCustomData, ApprovalOutcome } from '../../types/workflow';
 import { useWorkflowStore } from '../../hooks/useWorkflowStore';
+import { useSmartFormStore } from '../../store/useSmartFormStore';
 
 interface ApprovalConfigProps {
   nodeId: string;
@@ -47,6 +49,7 @@ export const ApprovalConfig: React.FC<ApprovalConfigProps> = ({ nodeId, data }) 
     removeOutcomeFromApproval, 
     updateOutcomeInApproval
   } = useWorkflowStore();
+  const forms = useSmartFormStore((s) => s.forms);
 
   const approval = data.approvalData || {
     label: 'Approval Task',
@@ -280,6 +283,45 @@ export const ApprovalConfig: React.FC<ApprovalConfigProps> = ({ nodeId, data }) 
           />
           <span>Allow Task Reassignment by Assignee</span>
         </label>
+      </div>
+
+      <div className="space-y-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+        <label className="text-xs font-bold text-[#0F172A] dark:text-slate-200 flex items-center gap-1.5">
+          <FileSpreadsheet className="w-3.5 h-3.5 text-[#2563EB] dark:text-blue-400" />
+          <span>Task Review SmartForm</span>
+        </label>
+
+        <select
+          value={approval.formId || ''}
+          onChange={(e) =>
+            updateNodeData(nodeId, {
+              approvalData: { ...approval, formId: e.target.value || undefined }
+            })
+          }
+          className={inputClass}
+        >
+          <option value="">— Default Task Card (No SmartForm) —</option>
+          {forms.map((f) => (
+            <option key={f.id} value={f.id}>
+              {f.title} ({f.category})
+            </option>
+          ))}
+        </select>
+
+        {approval.formId && (
+          <select
+            value={approval.formMode || 'readonly'}
+            onChange={(e) =>
+              updateNodeData(nodeId, {
+                approvalData: { ...approval, formMode: e.target.value as 'readonly' | 'editable' }
+              })
+            }
+            className={inputClass}
+          >
+            <option value="readonly">🔒 Read-Only Consultation for Approver</option>
+            <option value="editable">✏️ Editable Form Fields for Approver</option>
+          </select>
+        )}
       </div>
 
       <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900/60 text-[11px] text-[#475569] dark:text-slate-300 flex items-start gap-2 font-medium">

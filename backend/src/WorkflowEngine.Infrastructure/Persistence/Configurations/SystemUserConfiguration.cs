@@ -29,6 +29,11 @@ public class SystemUserConfiguration : IEntityTypeConfiguration<SystemUser>
             .IsUnique()
             .HasDatabaseName("UQ_SystemUsers_Email");
 
+        builder.Property(u => u.PasswordHash)
+            .HasMaxLength(500)
+            .HasDefaultValue("")
+            .IsRequired();
+
         builder.Property(u => u.Role)
             .HasMaxLength(100)
             .HasDefaultValue("End User")

@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { Play, Plus, Trash2 } from 'lucide-react';
+import { Play, Plus, Trash2, FileSpreadsheet, RefreshCw } from 'lucide-react';
 import type { WorkflowNodeCustomData, TriggerType, WorkflowVariable } from '../../types/workflow';
 import { useWorkflowStore } from '../../hooks/useWorkflowStore';
+import { useSmartFormStore } from '../../store/useSmartFormStore';
 
 interface TriggerConfigProps {
   nodeId: string;
@@ -9,7 +10,8 @@ interface TriggerConfigProps {
 }
 
 export const TriggerConfig: React.FC<TriggerConfigProps> = ({ nodeId, data }) => {
-  const { updateNodeData } = useWorkflowStore();
+  const { updateNodeData, setCurrentTab } = useWorkflowStore();
+  const { forms, selectForm } = useSmartFormStore();
 
   const trigger = data.triggerData || {
     label: 'Workflow Trigger',
@@ -94,6 +96,80 @@ export const TriggerConfig: React.FC<TriggerConfigProps> = ({ nodeId, data }) =>
           <option value="item_created">🗄️ Database Record Event</option>
         </select>
       </div>
+
+      {trigger.triggerType === 'form' && (
+        <div className="p-3 rounded-2xl border border-blue-200 dark:border-blue-900/60 bg-blue-50/40 dark:bg-blue-950/20 space-y-2.5">
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-bold text-[#0F172A] dark:text-slate-200 flex items-center gap-1.5">
+              <FileSpreadsheet className="w-3.5 h-3.5 text-[#2563EB] dark:text-blue-400" />
+              <span>Bound Start SmartForm</span>
+            </label>
+            {trigger.formId && (
+              <button
+                type="button"
+                onClick={() => {
+                  selectForm(trigger.formId!);
+                  setCurrentTab('smartforms');
+                }}
+                className="text-[10px] font-bold text-[#2563EB] dark:text-blue-400 hover:underline cursor-pointer"
+              >
+                Edit Form →
+              </button>
+            )}
+          </div>
+
+          <select
+            value={trigger.formId || ''}
+            onChange={(e) =>
+              updateNodeData(nodeId, {
+                triggerData: { ...trigger, formId: e.target.value || undefined }
+              })
+            }
+            className={inputClass}
+          >
+            <option value="">— Select a No-Code SmartForm —</option>
+            {forms.map((f) => (
+              <option key={f.id} value={f.id}>
+                {f.title} ({f.fields.filter((x) => x.type !== 'section').length} fields)
+              </option>
+            ))}
+          </select>
+
+          {trigger.formId && (
+            <button
+              type="button"
+              onClick={() => {
+                const chosen = forms.find((f) => f.id === trigger.formId);
+                if (!chosen) return;
+                const syncedVars: WorkflowVariable[] = chosen.fields
+                  .filter((fld) => fld.type !== 'section')
+                  .map((fld) => ({
+                    name: fld.name,
+                    type:
+                      fld.type === 'number' || fld.type === 'currency'
+                        ? 'number'
+                        : fld.type === 'checkbox'
+                        ? 'boolean'
+                        : fld.type === 'date'
+                        ? 'date'
+                        : 'string',
+                    defaultValue: fld.defaultValue || ''
+                  }));
+                updateNodeData(nodeId, {
+                  triggerData: {
+                    ...trigger,
+                    variables: syncedVars
+                  }
+                });
+              }}
+              className="w-full py-1.5 px-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-[11px] font-bold text-[#2563EB] dark:text-blue-400 flex items-center justify-center gap-1.5 cursor-pointer hover:bg-blue-50 dark:hover:bg-slate-700"
+            >
+              <RefreshCw className="w-3 h-3" />
+              <span>Sync Form Fields → Payload Variables</span>
+            </button>
+          )}
+        </div>
+      )}
 
       <div className="space-y-1.5">
         <label className="text-xs font-bold text-[#0F172A] dark:text-slate-200">Event Identifier Name</label>

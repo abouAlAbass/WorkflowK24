@@ -1,3 +1,5 @@
+using WorkflowEngine.Domain.ValueObjects;
+
 namespace WorkflowEngine.Application.Features.Tasks.DTOs;
 
 public record TaskCompletedResult(
@@ -21,5 +23,12 @@ public record WorkflowTaskDto(
     DateTime? DueDate,
     DateTime AssignedAt,
     DateTime? CompletedAt,
-    string? CompletedBy
+    string? CompletedBy,
+    string? WorkflowName = null,
+    string? InitiatorId = null,
+    IReadOnlyList<ApprovalOutcomeDto>? Outcomes = null,
+    string? FormId = null,
+    string FormMode = "readonly",
+    Dictionary<string, object?>? FormData = null,
+    int Version = 1
 );

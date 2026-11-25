@@ -14,7 +14,8 @@ public static class DefinitionEndpoints
     public static IEndpointRouteBuilder MapDefinitionEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/definitions")
-            .WithTags("Definitions");
+            .WithTags("Definitions")
+            .RequireAuthorization();
 
         group.MapPost("/", async (
             CreateWorkflowDefinitionCommand command,
@@ -31,6 +32,7 @@ public static class DefinitionEndpoints
             var result = await bus.InvokeAsync<WorkflowDefinitionCreatedResult>(command, ct);
             return Results.Created($"/api/definitions/{result.WorkflowKey}", result);
         })
+        .RequireAuthorization("DesignerOrAdmin")
         .WithName("CreateWorkflowDefinition")
         .WithSummary("Saves a workflow definition and publishes a new graph version.");
 
@@ -53,6 +55,17 @@ public static class DefinitionEndpoints
         })
         .WithName("GetWorkflowDefinitionByKey")
         .WithSummary("Retrieves a workflow definition and active graph by its unique key.");
+
+        group.MapDelete("/{key}", async (string key, IMessageBus bus, CancellationToken ct) =>
+        {
+            var deleted = await bus.InvokeAsync<bool>(
+                new DeleteWorkflowDefinitionCommand(key), ct);
+
+            return deleted ? Results.NoContent() : Results.NotFound();
+        })
+        .RequireAuthorization("DesignerOrAdmin")
+        .WithName("DeleteWorkflowDefinition")
+        .WithSummary("Deletes a workflow definition, its versions, and associated instances.");
 
         return app;
     }

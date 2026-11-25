@@ -1,14 +1,19 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using WorkflowEngine.Domain.Entities;
+using WorkflowEngine.Domain.Security;
 
 namespace WorkflowEngine.Infrastructure.Persistence;
 
 /// <summary>
-/// Helper to automatically apply pending EF Core migrations or ensure schema creation on startup.
+/// Automatically applies pending EF Core migrations (SQL Server) or initializes relational schema
+/// and seeds initial enterprise users and settings.
 /// </summary>
 public static class DatabaseInitializer
 {
+    public const string DefaultSeedPassword = "Password123!";
+
     public static async Task InitializeDatabaseAsync(this IServiceProvider serviceProvider)
     {
         using var scope = serviceProvider.CreateScope();
@@ -19,171 +24,131 @@ public static class DatabaseInitializer
         {
             if (context.Database.IsRelational())
             {
-                var pendingMigrations = await context.Database.GetPendingMigrationsAsync();
-                if (pendingMigrations.Any())
+                if (context.Database.IsSqlServer())
                 {
-                    logger.LogInformation("Applying {Count} pending EF Core migration(s)...", pendingMigrations.Count());
-                    await context.Database.MigrateAsync();
-                    logger.LogInformation("EF Core migrations applied successfully.");
+                    var pendingMigrations = (await context.Database.GetPendingMigrationsAsync()).ToList();
+                    if (pendingMigrations.Count > 0)
+                    {
+                        logger.LogInformation("Applying {Count} pending EF Core migration(s)...", pendingMigrations.Count);
+                        await context.Database.MigrateAsync();
+                        logger.LogInformation("EF Core migrations applied successfully.");
+                    }
+                    else
+                    {
+                        await context.Database.MigrateAsync();
+                    }
                 }
                 else
                 {
-                    // Ensures all tables, constraints, and indexes from schema.sql are created immediately
                     await context.Database.EnsureCreatedAsync();
-                    logger.LogInformation("Database verified and tables created successfully.");
+                    logger.LogInformation("Database schema verified and created successfully.");
                 }
 
-                // Ensure SmartObjects and SmartObjectRecords tables exist in existing databases
-                string ddl = context.Database.IsSqlServer()
-                    ? """
-                        IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'SmartObjects')
-                        BEGIN
-                            CREATE TABLE [SmartObjects] (
-                                [Id] NVARCHAR(100) NOT NULL,
-                                [Name] NVARCHAR(150) NOT NULL,
-                                [DisplayName] NVARCHAR(255) NOT NULL,
-                                [Description] NVARCHAR(1000) NULL,
-                                [Category] NVARCHAR(100) NOT NULL DEFAULT 'Custom',
-                                [RecordsCount] INT NOT NULL DEFAULT 0,
-                                [FieldsJson] NVARCHAR(MAX) NOT NULL DEFAULT '[]',
-                                [CreatedAt] DATETIME2 NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                                [UpdatedAt] DATETIME2 NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                                CONSTRAINT [PK_SmartObjects] PRIMARY KEY ([Id]),
-                                CONSTRAINT [UQ_SmartObjects_Name] UNIQUE ([Name])
-                            );
-                        END;
-
-                        IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'SmartObjectRecords')
-                        BEGIN
-                            CREATE TABLE [SmartObjectRecords] (
-                                [Id] BIGINT IDENTITY(1,1) NOT NULL,
-                                [SmartObjectId] NVARCHAR(100) NOT NULL,
-                                [RecordKey] NVARCHAR(150) NOT NULL,
-                                [DataJson] NVARCHAR(MAX) NOT NULL DEFAULT '{}',
-                                [CreatedAt] DATETIME2 NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                                [UpdatedAt] DATETIME2 NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                                CONSTRAINT [PK_SmartObjectRecords] PRIMARY KEY ([Id]),
-                                CONSTRAINT [UQ_SmartObjectRecords_Object_Key] UNIQUE ([SmartObjectId], [RecordKey])
-                            );
-                        END;
-                    """
-                    : """
-                        CREATE TABLE IF NOT EXISTS "SmartObjects" (
-                            "Id" VARCHAR(100) PRIMARY KEY,
-                            "Name" VARCHAR(150) UNIQUE NOT NULL,
-                            "DisplayName" VARCHAR(255) NOT NULL,
-                            "Description" VARCHAR(1000) NULL,
-                            "Category" VARCHAR(100) NOT NULL DEFAULT 'Custom',
-                            "RecordsCount" INT NOT NULL DEFAULT 0,
-                            "FieldsJson" TEXT NOT NULL DEFAULT '[]',
-                            "CreatedAt" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                            "UpdatedAt" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-                        );
-
-                        CREATE TABLE IF NOT EXISTS "SmartObjectRecords" (
-                            "Id" BIGSERIAL PRIMARY KEY,
-                            "SmartObjectId" VARCHAR(100) NOT NULL,
-                            "RecordKey" VARCHAR(150) NOT NULL,
-                            "DataJson" TEXT NOT NULL DEFAULT '{}',
-                            "CreatedAt" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                            "UpdatedAt" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                            CONSTRAINT "UQ_SmartObjectRecords_Object_Key" UNIQUE ("SmartObjectId", "RecordKey")
-                        );
-
-                        CREATE TABLE IF NOT EXISTS "SystemUsers" (
-                            "Id" VARCHAR(100) PRIMARY KEY,
-                            "Name" VARCHAR(150) NOT NULL,
-                            "Email" VARCHAR(255) UNIQUE NOT NULL,
-                            "Role" VARCHAR(100) NOT NULL DEFAULT 'End User',
-                            "Group" VARCHAR(100) NOT NULL DEFAULT 'General',
-                            "Status" VARCHAR(50) NOT NULL DEFAULT 'Active',
-                            "AvatarUrl" VARCHAR(500) NOT NULL DEFAULT '',
-                            "CreatedAt" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                            "UpdatedAt" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-                        );
-
-                        CREATE TABLE IF NOT EXISTS "SystemSettings" (
-                            "Key" VARCHAR(100) PRIMARY KEY,
-                            "Value" TEXT NOT NULL DEFAULT '',
-                            "Category" VARCHAR(100) NOT NULL DEFAULT 'General',
-                            "UpdatedAt" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-                        );
-                    """;
-
-                if (context.Database.IsSqlServer())
-                {
-                    ddl += """
-
-                        IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'SystemUsers')
-                        BEGIN
-                            CREATE TABLE [SystemUsers] (
-                                [Id] NVARCHAR(100) NOT NULL,
-                                [Name] NVARCHAR(150) NOT NULL,
-                                [Email] NVARCHAR(255) NOT NULL,
-                                [Role] NVARCHAR(100) NOT NULL DEFAULT 'End User',
-                                [Group] NVARCHAR(100) NOT NULL DEFAULT 'General',
-                                [Status] NVARCHAR(50) NOT NULL DEFAULT 'Active',
-                                [AvatarUrl] NVARCHAR(500) NOT NULL DEFAULT '',
-                                [CreatedAt] DATETIME2 NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                                [UpdatedAt] DATETIME2 NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                                CONSTRAINT [PK_SystemUsers] PRIMARY KEY ([Id]),
-                                CONSTRAINT [UQ_SystemUsers_Email] UNIQUE ([Email])
-                            );
-                        END;
-
-                        IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'SystemSettings')
-                        BEGIN
-                            CREATE TABLE [SystemSettings] (
-                                [Key] NVARCHAR(100) NOT NULL,
-                                [Value] NVARCHAR(MAX) NOT NULL DEFAULT '',
-                                [Category] NVARCHAR(100) NOT NULL DEFAULT 'General',
-                                [UpdatedAt] DATETIME2 NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                                CONSTRAINT [PK_SystemSettings] PRIMARY KEY ([Key])
-                            );
-                        END;
-                    """;
-                }
-
-                var connection = context.Database.GetDbConnection();
-                await context.Database.OpenConnectionAsync();
-                using (var cmd = connection.CreateCommand())
-                {
-                    cmd.CommandText = ddl;
-                    await cmd.ExecuteNonQueryAsync();
-                }
-
-                // Seed initial system users if empty
-                if (!await context.SystemUsers.AnyAsync())
-                {
-                    context.SystemUsers.AddRange(
-                        new Domain.Entities.SystemUser("usr-1", "Adel Sebti", "a.sebti@enterprise.internal", "Administrator", "IT & Security", "Active", "/avatars/user-2.svg"),
-                        new Domain.Entities.SystemUser("usr-2", "Karim Khmissi", "k.khmissi@enterprise.internal", "Workflow Designer", "Operations", "Active", "/avatars/user-3.svg"),
-                        new Domain.Entities.SystemUser("usr-3", "Mohamed Fetni", "m.fetni@enterprise.internal", "Task Approver", "Finance", "Active", "/avatars/user-5.svg"),
-                        new Domain.Entities.SystemUser("usr-4", "Yacine Benali", "y.benali@enterprise.internal", "End User", "Legal", "Inactive", "/avatars/user-1.svg")
-                    );
-                    await context.SaveChangesAsync();
-                    logger.LogInformation("Seeded default SystemUsers.");
-                }
-
-                // Seed default settings if empty
-                if (!await context.SystemSettings.AnyAsync())
-                {
-                    context.SystemSettings.AddRange(
-                        new Domain.Entities.SystemSetting("smtp.server", "smtp.enterprise.internal", "Email"),
-                        new Domain.Entities.SystemSetting("smtp.port", "587", "Email"),
-                        new Domain.Entities.SystemSetting("system.retention_days", "90", "System"),
-                        new Domain.Entities.SystemSetting("telemetry.enabled", "true", "Monitoring"),
-                        new Domain.Entities.SystemSetting("security.mfa_enforced", "false", "Security")
-                    );
-                    await context.SaveChangesAsync();
-                    logger.LogInformation("Seeded default SystemSettings.");
-                }
+                await SeedDefaultUsersAsync(context, logger);
+                await SeedDefaultSettingsAsync(context, logger);
+                await SeedDefaultSmartFormsAsync(context, logger);
             }
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "An error occurred while automatically migrating or initializing the database.");
             throw;
+        }
+    }
+
+    private static async Task SeedDefaultUsersAsync(WorkflowEngineDbContext context, ILogger logger)
+    {
+        string defaultHash = PasswordHasher.HashPassword(DefaultSeedPassword);
+
+        var seedUsers = new[]
+        {
+            new SystemUser("usr-1", "Adel Sebti", "a.sebti@enterprise.internal", "Administrator", "IT & Security", "Active", "/avatars/user-2.svg", defaultHash),
+            new SystemUser("usr-2", "Karim Khmissi", "k.khmissi@enterprise.internal", "Workflow Designer", "Operations", "Active", "/avatars/user-3.svg", defaultHash),
+            new SystemUser("usr-3", "Mohamed Fetni", "m.fetni@enterprise.internal", "Process Manager", "Finance", "Active", "/avatars/user-5.svg", defaultHash),
+            new SystemUser("usr-4", "Yacine Benali", "y.benali@enterprise.internal", "End User", "Legal", "Inactive", "/avatars/user-1.svg", defaultHash),
+            new SystemUser("usr-5", "Adel Sebti", "adel.sebti@corp.internal", "BPM Administrator", "IT & Security", "Active", "/avatars/user-2.svg", defaultHash),
+            new SystemUser("usr-6", "Karim Khmissi", "karim.khmissi@corp.internal", "Process Manager", "Finance Managers", "Active", "/avatars/user-3.svg", defaultHash)
+        };
+
+        var existingEmails = await context.SystemUsers
+            .Select(u => u.Email)
+            .ToListAsync();
+
+        var existingSet = new HashSet<string>(existingEmails, StringComparer.OrdinalIgnoreCase);
+        bool hasChanges = false;
+
+        foreach (var seed in seedUsers)
+        {
+            if (!existingSet.Contains(seed.Email))
+            {
+                context.SystemUsers.Add(seed);
+                hasChanges = true;
+            }
+        }
+
+        // Upgrade any pre-existing seeded user whose PasswordHash was empty prior to P0 security migration
+        var unhashedUsers = await context.SystemUsers
+            .Where(u => u.PasswordHash == "")
+            .ToListAsync();
+
+        foreach (var legacyUser in unhashedUsers)
+        {
+            legacyUser.SetPassword(DefaultSeedPassword);
+            hasChanges = true;
+        }
+
+        if (hasChanges)
+        {
+            await context.SaveChangesAsync();
+            logger.LogInformation("Seeded/updated default SystemUsers with PBKDF2 credentials.");
+        }
+    }
+
+    private static async Task SeedDefaultSettingsAsync(WorkflowEngineDbContext context, ILogger logger)
+    {
+        if (!await context.SystemSettings.AnyAsync())
+        {
+            context.SystemSettings.AddRange(
+                new SystemSetting("smtp.server", "smtp.enterprise.internal", "Email"),
+                new SystemSetting("smtp.port", "587", "Email"),
+                new SystemSetting("system.retention_days", "90", "System"),
+                new SystemSetting("telemetry.enabled", "true", "Monitoring"),
+                new SystemSetting("security.mfa_enforced", "false", "Security")
+            );
+            await context.SaveChangesAsync();
+            logger.LogInformation("Seeded default SystemSettings.");
+        }
+    }
+
+    private static async Task SeedDefaultSmartFormsAsync(WorkflowEngineDbContext context, ILogger logger)
+    {
+        if (!await context.SmartForms.AnyAsync())
+        {
+            const string purchaseFieldsJson = """
+            [
+              {"id":"f1","name":"VendorName","label":"Vendor Name","type":"text","required":true,"readOnly":false,"width":"half","placeholder":"e.g. Dell Technologies"},
+              {"id":"f2","name":"Department","label":"Cost Center / Department","type":"select","required":true,"readOnly":false,"width":"half","options":["Engineering","Finance","IT Security","Operations","HR"]},
+              {"id":"f3","name":"Amount","label":"Total Purchase Amount ($)","type":"currency","required":true,"readOnly":false,"width":"half","defaultValue":"4500"},
+              {"id":"f4","name":"NeededByDate","label":"Required Delivery Date","type":"date","required":true,"readOnly":false,"width":"half"},
+              {"id":"f5","name":"ExecutiveJustification","label":"Executive Justification (> $5,000)","type":"textarea","required":false,"readOnly":false,"width":"full","placeholder":"Explain ROI for high-value purchase...","visibilityRule":{"field":"Amount","operator":"greater_than","value":"5000"}},
+              {"id":"f6","name":"LineItems","label":"Order Line Items","type":"repeater","required":false,"readOnly":false,"width":"full","repeaterColumns":[{"name":"Item","label":"Item Description","type":"text","required":true},{"name":"Qty","label":"Qty","type":"number","required":true},{"name":"UnitPrice","label":"Unit Price ($)","type":"number","required":true}]},
+              {"id":"f7","name":"QuoteAttachment","label":"Vendor Quote (PDF / Image)","type":"file","required":false,"readOnly":false,"width":"full"}
+            ]
+            """;
+
+            context.SmartForms.Add(new SmartFormEntity(
+                "form-purchase-req",
+                "PurchaseRequisitionForm",
+                "Executive Purchase Requisition",
+                "No-Code procurement request form with conditional justification, line-item repeater, and vendor quote attachment.",
+                "Finance",
+                purchaseFieldsJson,
+                "so-expense",
+                "expense",
+                "Published"));
+
+            await context.SaveChangesAsync();
+            logger.LogInformation("Seeded default SmartForms.");
         }
     }
 }

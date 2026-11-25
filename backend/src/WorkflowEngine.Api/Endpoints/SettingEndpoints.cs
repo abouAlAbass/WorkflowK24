@@ -14,7 +14,8 @@ public static class SettingEndpoints
     public static IEndpointRouteBuilder MapSettingEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/settings")
-            .WithTags("Settings");
+            .WithTags("Settings")
+            .RequireAuthorization("AdminOnly");
 
         // 1. Get system settings
         group.MapGet("/", async (IMessageBus bus, CancellationToken ct) =>

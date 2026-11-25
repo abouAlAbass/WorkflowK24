@@ -18,7 +18,6 @@ public class SystemSettingConfiguration : IEntityTypeConfiguration<SystemSetting
             .IsRequired();
 
         builder.Property(s => s.Value)
-            .HasColumnType("text")
             .HasDefaultValue("")
             .IsRequired();
 

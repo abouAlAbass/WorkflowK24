@@ -92,4 +92,15 @@ public class WorkflowDefinitionHandlers
             activeVersion?.VersionNumber ?? 0,
             activeVersion?.GraphJson);
     }
+
+    public async Task<bool> Handle(DeleteWorkflowDefinitionCommand command, CancellationToken ct)
+    {
+        bool deleted = await _definitionRepository.DeleteByKeyAsync(command.WorkflowKey, ct);
+        if (deleted)
+        {
+            await _unitOfWork.SaveChangesAsync(ct);
+        }
+
+        return deleted;
+    }
 }

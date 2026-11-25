@@ -1,22 +1,108 @@
-import React, { useState } from 'react';
-import { Inbox, CheckCircle2, Clock, X } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Inbox, CheckCircle2, Clock, X, FileSpreadsheet } from 'lucide-react';
 import { useWorkflowStore } from '../../hooks/useWorkflowStore';
-import type { ActionItemTask } from '../../types/workflow';
+import { useSmartFormStore } from '../../store/useSmartFormStore';
+import { SmartFormRenderer, evaluateFieldVisibility } from '../forms/SmartFormRenderer';
+import type { ActionItemTask, ApprovalOutcome } from '../../types/workflow';
 
 export const TaskCenterView: React.FC = () => {
   const { actionItemTasks, resolveTask } = useWorkflowStore();
+  const forms = useSmartFormStore((s) => s.forms);
+
   const [selectedTask, setSelectedTask] = useState<ActionItemTask | null>(actionItemTasks[0] || null);
-  const [modalAction, setModalAction] = useState<'approve' | 'reject' | null>(null);
+  const [selectedOutcome, setSelectedOutcome] = useState<ApprovalOutcome | null>(null);
   const [comment, setComment] = useState('');
+  const [formPatch, setFormPatch] = useState<Record<string, unknown>>({});
+
+  useEffect(() => {
+    setFormPatch({});
+  }, [selectedTask?.id]);
+
+  useEffect(() => {
+    if (selectedTask && !actionItemTasks.some((t) => t.id === selectedTask.id)) {
+      setSelectedTask(actionItemTasks[0] || null);
+    } else if (!selectedTask && actionItemTasks.length > 0) {
+      setSelectedTask(actionItemTasks[0]);
+    }
+  }, [actionItemTasks, selectedTask]);
+
+  const handleSelectTask = (task: ActionItemTask) => {
+    setSelectedTask(task);
+    setSelectedOutcome(null);
+    setComment('');
+    setFormPatch({});
+  };
+
+  const boundForm = selectedTask?.formId
+    ? forms.find((f) => f.id === selectedTask.formId)
+    : undefined;
+
+  const handleFormValuesChange = (updatedValues: Record<string, unknown>) => {
+    if (!selectedTask || selectedTask.formMode !== 'editable') {
+      return;
+    }
+
+    const baseData = selectedTask.formData || {};
+    const baseline: Record<string, unknown> = { ...baseData };
+    if (boundForm) {
+      for (const f of boundForm.fields) {
+        if (f.type === 'section' || f.name in baseline) continue;
+        if (f.type === 'checkbox') {
+          baseline[f.name] = f.defaultValue === 'true';
+        } else if (f.type === 'repeater') {
+          baseline[f.name] = [];
+        } else {
+          baseline[f.name] = f.defaultValue ?? '';
+        }
+      }
+    }
+
+    const nextPatch: Record<string, unknown> = {};
+    for (const [key, val] of Object.entries(updatedValues)) {
+      if (boundForm) {
+        const fieldDef = boundForm.fields.find((fld) => fld.name === key);
+        if (!fieldDef || fieldDef.type === 'section' || fieldDef.readOnly) {
+          continue;
+        }
+        if (!evaluateFieldVisibility(fieldDef.visibilityRule, updatedValues)) {
+          continue;
+        }
+      }
+      if (JSON.stringify(baseline[key]) !== JSON.stringify(val)) {
+        nextPatch[key] = val;
+      }
+    }
+    setFormPatch(nextPatch);
+  };
 
   const handleConfirmDecision = () => {
-    if (selectedTask && modalAction) {
-      resolveTask(selectedTask.id, modalAction, comment);
+    if (selectedTask && selectedOutcome) {
+      const patchToSend =
+        selectedTask.formMode === 'editable' && Object.keys(formPatch).length > 0
+          ? formPatch
+          : undefined;
+
+      resolveTask(
+        selectedTask.id,
+        selectedOutcome.id,
+        comment || `Outcome: ${selectedOutcome.label}`,
+        patchToSend
+      );
+
       setSelectedTask(null);
-      setModalAction(null);
+      setSelectedOutcome(null);
       setComment('');
+      setFormPatch({});
     }
   };
+
+  const taskOutcomes: ApprovalOutcome[] =
+    selectedTask?.outcomes && selectedTask.outcomes.length > 0
+      ? selectedTask.outcomes
+      : [
+          { id: 'approve', label: 'Approve Task', color: '#059669' },
+          { id: 'reject', label: 'Reject Task', color: '#DC2626' }
+        ];
 
   return (
     <div className="flex-1 overflow-y-auto p-6 space-y-6 select-none">
@@ -28,7 +114,7 @@ export const TaskCenterView: React.FC = () => {
             Central Task Inbox & Approval Decisions
           </h2>
           <p className="text-xs text-[#64748B] dark:text-slate-400 font-medium">
-            Review pending task worklists, audit requester details, and log binding decision outcomes
+            Review pending task worklists, inspect bound SmartForms, and log binding decision outcomes
           </p>
         </div>
       </div>
@@ -54,7 +140,7 @@ export const TaskCenterView: React.FC = () => {
               return (
                 <div
                   key={t.id}
-                  onClick={() => setSelectedTask(t)}
+                  onClick={() => handleSelectTask(t)}
                   className={`p-4 rounded-2xl border transition-all cursor-pointer ${
                     isSelected
                       ? 'border-[#2563EB] dark:border-blue-500 bg-blue-50/50 dark:bg-slate-800 shadow-sm'
@@ -83,7 +169,7 @@ export const TaskCenterView: React.FC = () => {
             })}
           </div>
 
-          {/* Right: Selected Task Detail Inspector */}
+          {/* Right: Selected Task Detail Inspector + Bound SmartForm */}
           {selectedTask && (
             <div className="lg:col-span-2 space-y-4">
               <div className="p-6 rounded-3xl bg-white dark:bg-[#1E293B] border border-[#E2E8F0] dark:border-[#334155] shadow-xs space-y-5 transition-colors">
@@ -97,19 +183,18 @@ export const TaskCenterView: React.FC = () => {
                     </h3>
                   </div>
 
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => setModalAction('approve')}
-                      className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold shadow-md cursor-pointer transition-colors"
-                    >
-                      Approve Task
-                    </button>
-                    <button
-                      onClick={() => setModalAction('reject')}
-                      className="px-4 py-2 bg-white dark:bg-slate-800 hover:bg-rose-50 text-[#DC2626] border border-red-200 dark:border-red-900 rounded-xl text-xs font-bold shadow-md cursor-pointer transition-colors"
-                    >
-                      Reject Task
-                    </button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {taskOutcomes.map((outcome) => (
+                      <button
+                        key={outcome.id}
+                        type="button"
+                        onClick={() => setSelectedOutcome(outcome)}
+                        style={{ backgroundColor: outcome.color || '#2563EB' }}
+                        className="px-4 py-2 hover:opacity-90 text-white rounded-xl text-xs font-bold shadow-md cursor-pointer transition-all"
+                      >
+                        {outcome.label}
+                      </button>
+                    ))}
                   </div>
                 </div>
 
@@ -136,6 +221,31 @@ export const TaskCenterView: React.FC = () => {
                     {selectedTask.description}
                   </div>
                 </div>
+
+                {boundForm && (
+                  <div className="pt-3 border-t border-slate-200 dark:border-slate-800 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-extrabold text-[#0F172A] dark:text-white flex items-center gap-1.5">
+                        <FileSpreadsheet className="w-4 h-4 text-[#2563EB] dark:text-blue-400" />
+                        <span>Bound SmartForm: {boundForm.title}</span>
+                      </span>
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                        {selectedTask.formMode === 'editable' ? 'Editable Mode' : 'Read-Only Review'}
+                      </span>
+                    </div>
+
+                    <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-[#F8FAFC] dark:bg-slate-900/50">
+                      <SmartFormRenderer
+                        key={selectedTask.id}
+                        form={boundForm}
+                        initialValues={selectedTask.formData}
+                        forceReadOnly={selectedTask.formMode !== 'editable'}
+                        hideSubmitButton={true}
+                        onChangeValues={selectedTask.formMode === 'editable' ? handleFormValuesChange : undefined}
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -143,21 +253,21 @@ export const TaskCenterView: React.FC = () => {
       )}
 
       {/* Decision Modal */}
-      {selectedTask && modalAction && (
+      {selectedTask && selectedOutcome && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 select-none animate-fade-in text-[#0F172A] dark:text-slate-100">
           <div className="border border-[#E2E8F0] dark:border-[#334155] bg-white dark:bg-[#1E293B] rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col transition-colors">
             <div className="p-4 border-b border-[#E2E8F0] dark:border-[#334155] bg-[#F8FAFC] dark:bg-[#0F172A] flex items-center justify-between">
               <h3 className="font-extrabold text-sm text-[#0F172A] dark:text-white">
-                Log Task Decision: {modalAction === 'approve' ? 'Approval' : 'Rejection'}
+                Log Task Decision: {selectedOutcome.label}
               </h3>
-              <button onClick={() => setModalAction(null)} className="p-1 text-slate-400 hover:text-slate-600">
+              <button onClick={() => setSelectedOutcome(null)} className="p-1 text-slate-400 hover:text-slate-600">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             <div className="p-5 space-y-4">
               <p className="text-xs text-[#64748B] dark:text-slate-300">
-                Are you sure you want to {modalAction} <strong>"{selectedTask.title}"</strong>?
+                Confirm decision <strong>"{selectedOutcome.label}"</strong> for <strong>"{selectedTask.title}"</strong>?
               </p>
               <textarea
                 value={comment}
@@ -169,16 +279,15 @@ export const TaskCenterView: React.FC = () => {
             </div>
 
             <div className="p-4 border-t border-[#E2E8F0] dark:border-[#334155] bg-[#F8FAFC] dark:bg-[#0F172A] flex justify-end gap-2">
-              <button onClick={() => setModalAction(null)} className="px-4 py-2 rounded-xl bg-slate-200 dark:bg-slate-800 text-xs font-bold">
+              <button onClick={() => setSelectedOutcome(null)} className="px-4 py-2 rounded-xl bg-slate-200 dark:bg-slate-800 text-xs font-bold cursor-pointer">
                 Cancel
               </button>
               <button
                 onClick={handleConfirmDecision}
-                className={`px-4 py-2 rounded-xl text-xs font-bold text-white ${
-                  modalAction === 'approve' ? 'bg-emerald-500' : 'bg-rose-600'
-                }`}
+                style={{ backgroundColor: selectedOutcome.color || '#2563EB' }}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-white cursor-pointer"
               >
-                Confirm {modalAction}
+                Confirm {selectedOutcome.label}
               </button>
             </div>
           </div>

@@ -18,7 +18,12 @@ public record WorkflowInstanceDto(
     string? ContextVariablesJson,
     DateTime StartedAt,
     DateTime? CompletedAt,
-    DateTime LastUpdatedAt
+    DateTime LastUpdatedAt,
+    string? WorkflowName = null,
+    string? CurrentNodeLabel = null,
+    int ProgressPercentage = 50,
+    double DurationSeconds = 0,
+    string Department = "Operations"
 );
 
 public record ActiveBottleneckDto(

@@ -22,6 +22,9 @@ public class WorkflowTask
     public DateTime? CompletedAt { get; private set; }
     public string? CompletedBy { get; private set; }
 
+    /// <summary>Optimistic concurrency token, incremented on every state change.</summary>
+    public int Version { get; private set; } = 1;
+
     public WorkflowInstance Instance { get; private set; } = default!;
 
     private WorkflowTask() { } // Required for ORM hydration
@@ -45,6 +48,14 @@ public class WorkflowTask
         Comments = comments;
         Status = outcome.Equals("reject", StringComparison.OrdinalIgnoreCase) ? TaskStatus.Rejected : TaskStatus.Approved;
         CompletedAt = DateTime.UtcNow;
+        Version++;
+    }
+
+    public void Cancel()
+    {
+        Status = TaskStatus.Cancelled;
+        CompletedAt = DateTime.UtcNow;
+        Version++;
     }
 
     public void Delegate(string newAssigneeId, AssigneeType newAssigneeType, string delegatedBy, string? comments = null)
@@ -54,5 +65,6 @@ public class WorkflowTask
         CompletedBy = delegatedBy;
         Comments = comments;
         Status = TaskStatus.Delegated;
+        Version++;
     }
 }

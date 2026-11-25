@@ -1,6 +1,6 @@
 import React from 'react';
-import { GitBranch, Check, X } from 'lucide-react';
-import type { WorkflowNodeCustomData, DecisionCondition } from '../../types/workflow';
+import { GitBranch, Check, X, Plus, Trash2 } from 'lucide-react';
+import type { WorkflowNodeCustomData, DecisionCondition, DecisionOperator } from '../../types/workflow';
 import { useWorkflowStore } from '../../hooks/useWorkflowStore';
 
 interface DecisionConfigProps {
@@ -13,24 +13,62 @@ export const DecisionConfig: React.FC<DecisionConfigProps> = ({ nodeId, data }) 
 
   const decision = data.decisionData || {
     label: 'Decision Rule',
-    conditions: [{ id: 'c1', field: 'Amount', operator: 'greater_than', value: '5000' }],
+    conditions: [{ id: 'c1', field: 'Amount', operator: 'greater_than' as DecisionOperator, value: '5000' }],
+    logicalOperator: 'AND' as const,
     trueOutcomeLabel: 'Yes (> $5k)',
     falseOutcomeLabel: 'No (<= $5k)'
   };
 
-  const condition: DecisionCondition = decision.conditions?.[0] || {
-    id: 'c1',
-    field: 'Amount',
-    operator: 'greater_than',
-    value: '5000'
-  };
+  const conditions: DecisionCondition[] = decision.conditions && decision.conditions.length > 0
+    ? decision.conditions
+    : [{ id: 'c1', field: 'Amount', operator: 'greater_than', value: '5000' }];
 
-  const handleConditionChange = (fieldKey: keyof DecisionCondition, value: string) => {
-    const updatedCondition = { ...condition, [fieldKey]: value };
+  const logicalOperator = decision.logicalOperator || 'AND';
+
+  const handleConditionChange = (index: number, fieldKey: keyof DecisionCondition, value: string) => {
+    const nextConditions = conditions.map((c, idx) =>
+      idx === index ? { ...c, [fieldKey]: value } : c
+    );
     updateNodeData(nodeId, {
       decisionData: {
         ...decision,
-        conditions: [updatedCondition]
+        conditions: nextConditions
+      }
+    });
+  };
+
+  const handleAddCondition = () => {
+    const newCond: DecisionCondition = {
+      id: `c-${Date.now()}`,
+      field: 'Department',
+      operator: 'equals',
+      value: 'Finance'
+    };
+    updateNodeData(nodeId, {
+      decisionData: {
+        ...decision,
+        logicalOperator,
+        conditions: [...conditions, newCond]
+      }
+    });
+  };
+
+  const handleRemoveCondition = (index: number) => {
+    if (conditions.length <= 1) return;
+    updateNodeData(nodeId, {
+      decisionData: {
+        ...decision,
+        conditions: conditions.filter((_, idx) => idx !== index)
+      }
+    });
+  };
+
+  const handleLogicalOperatorChange = (op: 'AND' | 'OR') => {
+    updateNodeData(nodeId, {
+      decisionData: {
+        ...decision,
+        logicalOperator: op,
+        conditions
       }
     });
   };
@@ -51,49 +89,119 @@ export const DecisionConfig: React.FC<DecisionConfigProps> = ({ nodeId, data }) 
       </div>
 
       <div className="space-y-3">
-        <label className="text-xs font-bold text-[#0F172A] dark:text-slate-200 flex items-center gap-1.5">
-          <GitBranch className="w-3.5 h-3.5 text-[#7C3AED] dark:text-purple-400" />
-          <span>If Condition Expression</span>
-        </label>
+        <div className="flex items-center justify-between">
+          <label className="text-xs font-bold text-[#0F172A] dark:text-slate-200 flex items-center gap-1.5">
+            <GitBranch className="w-3.5 h-3.5 text-[#7C3AED] dark:text-purple-400" />
+            <span>Condition Rules ({conditions.length})</span>
+          </label>
 
-        <div className="space-y-2 p-3.5 rounded-2xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-2xs">
-          <div className="space-y-1">
-            <span className="text-[10px] font-bold text-[#475569] dark:text-slate-400">Target Field Variable:</span>
-            <input
-              type="text"
-              value={condition.field}
-              onChange={(e) => handleConditionChange('field', e.target.value)}
-              className={`${inputClass} font-mono`}
-              placeholder="e.g. Amount or Salary"
-            />
-          </div>
-
-          <div className="space-y-1">
-            <span className="text-[10px] font-bold text-[#475569] dark:text-slate-400">Comparison Operator:</span>
-            <select
-              value={condition.operator}
-              onChange={(e) => handleConditionChange('operator', e.target.value)}
-              className={inputClass}
-            >
-              <option value="greater_than">Is Greater Than (&gt;)</option>
-              <option value="less_than">Is Less Than (&lt;)</option>
-              <option value="equals">Equals (==)</option>
-              <option value="not_equals">Does Not Equal (!=)</option>
-              <option value="contains">Contains Substring</option>
-            </select>
-          </div>
-
-          <div className="space-y-1">
-            <span className="text-[10px] font-bold text-[#475569] dark:text-slate-400">Comparison Value:</span>
-            <input
-              type="text"
-              value={condition.value}
-              onChange={(e) => handleConditionChange('value', e.target.value)}
-              className={`${inputClass} font-mono`}
-              placeholder="5000"
-            />
-          </div>
+          {conditions.length > 1 && (
+            <div className="inline-flex rounded-lg border border-slate-300 dark:border-slate-700 overflow-hidden text-[10px] font-bold">
+              <button
+                type="button"
+                onClick={() => handleLogicalOperatorChange('AND')}
+                className={`px-2.5 py-1 cursor-pointer transition-colors ${
+                  logicalOperator === 'AND'
+                    ? 'bg-[#2563EB] text-white'
+                    : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                }`}
+              >
+                AND
+              </button>
+              <button
+                type="button"
+                onClick={() => handleLogicalOperatorChange('OR')}
+                className={`px-2.5 py-1 cursor-pointer transition-colors ${
+                  logicalOperator === 'OR'
+                    ? 'bg-[#2563EB] text-white'
+                    : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                }`}
+              >
+                OR
+              </button>
+            </div>
+          )}
         </div>
+
+        <div className="space-y-3">
+          {conditions.map((condition, idx) => {
+            const hideValueInput = condition.operator === 'is_empty' || condition.operator === 'is_not_empty';
+            return (
+              <div key={condition.id || idx} className="space-y-2 p-3.5 rounded-2xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-2xs relative">
+                {conditions.length > 1 && (
+                  <div className="flex items-center justify-between pb-1 border-b border-slate-100 dark:border-slate-700/70">
+                    <span className="text-[10px] font-mono font-bold text-[#7C3AED] dark:text-purple-400">
+                      {idx === 0 ? 'IF' : logicalOperator} — Rule #{idx + 1}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveCondition(idx)}
+                      aria-label={`Remove condition ${idx + 1}`}
+                      className="text-slate-400 hover:text-rose-500 p-1 rounded cursor-pointer transition-colors"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
+
+                <div className="space-y-1">
+                  <span className="text-[10px] font-bold text-[#475569] dark:text-slate-400">Target Field Variable:</span>
+                  <input
+                    type="text"
+                    value={condition.field}
+                    onChange={(e) => handleConditionChange(idx, 'field', e.target.value)}
+                    className={`${inputClass} font-mono`}
+                    placeholder="e.g. Amount or user.department"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <span className="text-[10px] font-bold text-[#475569] dark:text-slate-400">Comparison Operator:</span>
+                  <select
+                    value={condition.operator}
+                    onChange={(e) => handleConditionChange(idx, 'operator', e.target.value)}
+                    className={inputClass}
+                  >
+                    <option value="greater_than">Is Greater Than (&gt;)</option>
+                    <option value="greater_than_or_equal">Greater Than or Equal (&gt;=)</option>
+                    <option value="less_than">Is Less Than (&lt;)</option>
+                    <option value="less_than_or_equal">Less Than or Equal (&lt;=)</option>
+                    <option value="equals">Equals (==)</option>
+                    <option value="not_equals">Does Not Equal (!=)</option>
+                    <option value="contains">Contains Substring</option>
+                    <option value="not_contains">Does Not Contain</option>
+                    <option value="starts_with">Starts With</option>
+                    <option value="ends_with">Ends With</option>
+                    <option value="is_empty">Is Empty / Null</option>
+                    <option value="is_not_empty">Is Not Empty</option>
+                  </select>
+                </div>
+
+                {!hideValueInput && (
+                  <div className="space-y-1">
+                    <span className="text-[10px] font-bold text-[#475569] dark:text-slate-400">Comparison Value:</span>
+                    <input
+                      type="text"
+                      value={condition.value}
+                      onChange={(e) => handleConditionChange(idx, 'value', e.target.value)}
+                      className={`${inputClass} font-mono`}
+                      placeholder="5000"
+                    />
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        <button
+          type="button"
+          onClick={handleAddCondition}
+          className="w-full py-2 px-3 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 hover:border-blue-500 text-xs font-semibold text-[#2563EB] dark:text-blue-400 flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+        >
+          <Plus className="w-3.5 h-3.5" />
+          <span>Add Condition Rule</span>
+        </button>
       </div>
 
       <div className="space-y-3 pt-2 border-t border-slate-200 dark:border-slate-800">

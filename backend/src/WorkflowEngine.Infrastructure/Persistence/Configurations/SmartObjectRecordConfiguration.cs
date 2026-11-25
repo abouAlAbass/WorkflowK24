@@ -29,7 +29,6 @@ public class SmartObjectRecordConfiguration : IEntityTypeConfiguration<SmartObje
             .HasDatabaseName("UQ_SmartObjectRecords_Object_Key");
 
         builder.Property(r => r.DataJson)
-            .HasColumnType("text")
             .HasDefaultValue("{}")
             .IsRequired();
 

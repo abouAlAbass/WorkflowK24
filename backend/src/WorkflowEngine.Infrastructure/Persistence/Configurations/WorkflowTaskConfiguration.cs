@@ -63,6 +63,11 @@ public class WorkflowTaskConfiguration : IEntityTypeConfiguration<WorkflowTask>
             .HasMaxLength(255)
             .IsRequired(false);
 
+        builder.Property(t => t.Version)
+            .HasDefaultValue(1)
+            .IsConcurrencyToken()
+            .IsRequired();
+
         builder.HasIndex(t => new { t.AssigneeId, t.Status, t.AssigneeType })
             .HasDatabaseName("IX_WorkflowTasks_Assignee_Status");
     }

@@ -6,7 +6,10 @@ import type {
   SmartObjectRecord,
   UserRecord,
   AnalyticsKpiData,
-  SystemSettingsData
+  SystemSettingsData,
+  ViewFlowData,
+  InstanceEventsPage,
+  InstanceCommandResponse
 } from '../types/workflow';
 
 export type AppMode = 'demo' | 'connected';
@@ -40,6 +43,7 @@ export interface WorkflowRepository {
   login(email: string, password?: string): Promise<AuthSession>;
   logout(): void;
   getAuthSession(): AuthSession | null;
+  changePassword?(currentPassword: string, newPassword: string): Promise<void>;
 
   // Workflow Definitions
   getDefinitions(): Promise<SavedWorkflowRecord[]>;
@@ -50,10 +54,21 @@ export interface WorkflowRepository {
   getInstances(): Promise<WorkflowInstance[]>;
   startInstance(workflowKey: string, initiatorId: string, variables?: Record<string, unknown>): Promise<WorkflowInstance>;
   getBottlenecks(): Promise<ActiveBottleneck[]>;
+  getInstanceFlow(id: string): Promise<ViewFlowData>;
+  getInstanceEvents(id: string, afterSeq?: number, limit?: number): Promise<InstanceEventsPage>;
+  suspendInstance(id: string, reason?: string): Promise<InstanceCommandResponse>;
+  resumeInstance(id: string): Promise<InstanceCommandResponse>;
+  cancelInstance(id: string, reason: string): Promise<InstanceCommandResponse>;
+  retryInstance(id: string, mode?: 'retry_failed_node' | 'retry_from_node', fromNodeId?: string): Promise<InstanceCommandResponse>;
 
   // Tasks & Approvals
   getTasks(assigneeId?: string): Promise<ActionItemTask[]>;
-  completeTask(taskId: string, outcome: string, completedBy: string, comments?: string): Promise<void>;
+  completeTask(
+    taskId: string,
+    outcome: string,
+    comments?: string,
+    formPatch?: Record<string, unknown>
+  ): Promise<void>;
 
   // Organizational & Data Models
   getUsers(): Promise<UserRecord[]>;

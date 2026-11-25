@@ -15,7 +15,7 @@ public class WorkflowDefinition
     public DateTime UpdatedAt { get; private set; } = DateTime.UtcNow;
 
     private readonly List<WorkflowVersion> _versions = new();
-    public IReadOnlyCollection<WorkflowVersion> Versions => _versions.AsReadOnly();
+    public IReadOnlyCollection<WorkflowVersion> Versions => _versions;
 
     private WorkflowDefinition() { } // Required for ORM hydration
 

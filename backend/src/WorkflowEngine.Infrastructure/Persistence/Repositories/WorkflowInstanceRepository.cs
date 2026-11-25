@@ -18,17 +18,21 @@ public class WorkflowInstanceRepository : IWorkflowInstanceRepository
     public async Task<WorkflowInstance?> GetByIdAsync(string instanceId, CancellationToken ct = default)
     {
         return await _dbContext.WorkflowInstances
-            .Include(i => i.Version)
+            .Include(i => i.WorkflowVersion)
+                .ThenInclude(v => v.Definition)
+            .Include(i => i.AuditLogs)
             .FirstOrDefaultAsync(i => i.InstanceId == instanceId, ct);
     }
 
     public async Task<WorkflowInstance?> GetByIdWithDetailsAsync(string instanceId, CancellationToken ct = default)
     {
         return await _dbContext.WorkflowInstances
-            .Include(i => i.Version)
+            .Include(i => i.WorkflowVersion)
+                .ThenInclude(v => v.Definition)
             .Include(i => i.Tasks)
             .Include(i => i.Errors)
             .Include(i => i.AuditLogs)
+            .Include(i => i.NodeExecutions)
             .FirstOrDefaultAsync(i => i.InstanceId == instanceId, ct);
     }
 
@@ -48,7 +52,11 @@ public class WorkflowInstanceRepository : IWorkflowInstanceRepository
 
     public async Task<IReadOnlyList<WorkflowInstance>> GetAllAsync(WorkflowStatus? status = null, CancellationToken ct = default)
     {
-        var query = _dbContext.WorkflowInstances.AsQueryable();
+        var query = _dbContext.WorkflowInstances
+            .Include(i => i.WorkflowVersion)
+                .ThenInclude(v => v.Definition)
+            .Include(i => i.AuditLogs)
+            .AsQueryable();
 
         if (status.HasValue)
         {

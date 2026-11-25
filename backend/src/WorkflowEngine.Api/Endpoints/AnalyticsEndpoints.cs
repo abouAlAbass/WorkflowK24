@@ -12,7 +12,8 @@ public static class AnalyticsEndpoints
     public static IEndpointRouteBuilder MapAnalyticsEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/analytics")
-            .WithTags("Analytics");
+            .WithTags("Analytics")
+            .RequireAuthorization();
 
         group.MapGet("/kpis", async (IMessageBus bus, CancellationToken ct) =>
         {

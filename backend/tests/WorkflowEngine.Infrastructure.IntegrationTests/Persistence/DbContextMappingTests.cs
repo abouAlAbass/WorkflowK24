@@ -50,5 +50,15 @@ public class DbContextMappingTests
         auditEntity.Should().NotBeNull();
         auditEntity!.GetTableName().Should().Be("WorkflowAuditLogs");
         auditEntity.FindPrimaryKey()!.Properties.Select(p => p.Name).Should().Contain("LogId");
+
+        var eventEntity = model.FindEntityType(typeof(InstanceEvent));
+        eventEntity.Should().NotBeNull();
+        eventEntity!.GetTableName().Should().Be("InstanceEvents");
+        eventEntity.FindPrimaryKey()!.Properties.Select(p => p.Name).Should().Contain("Id");
+
+        var cmdEntity = model.FindEntityType(typeof(CommandLog));
+        cmdEntity.Should().NotBeNull();
+        cmdEntity!.GetTableName().Should().Be("CommandLogs");
+        cmdEntity.FindPrimaryKey()!.Properties.Select(p => p.Name).Should().Contain("CommandId");
     }
 }

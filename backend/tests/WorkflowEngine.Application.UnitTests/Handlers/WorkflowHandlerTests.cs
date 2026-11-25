@@ -4,6 +4,7 @@ using WorkflowEngine.Application.Features.Definitions.Commands;
 using WorkflowEngine.Application.Features.Definitions.Handlers;
 using WorkflowEngine.Application.Features.Instances.Commands;
 using WorkflowEngine.Application.Features.Instances.Handlers;
+using WorkflowEngine.Application.Features.SmartForms.Validation;
 using WorkflowEngine.Application.Features.Tasks.Commands;
 using WorkflowEngine.Application.Features.Tasks.Handlers;
 using WorkflowEngine.Application.Services;
@@ -84,8 +85,19 @@ public class WorkflowHandlerTests
         taskRepoMock.Setup(r => r.GetByIdWithInstanceAsync("task-123", It.IsAny<CancellationToken>()))
             .ReturnsAsync(task);
 
-        var handler = new WorkflowTaskHandlers(taskRepoMock.Object, instRepoMock.Object, execEngineMock.Object, uowMock.Object);
-        var command = new CompleteTaskCommand("task-123", "Approve", "approver@corp.com", "Approved!");
+        var handler = new WorkflowTaskHandlers(
+            taskRepoMock.Object,
+            instRepoMock.Object,
+            execEngineMock.Object,
+            uowMock.Object,
+            new Mock<ISmartFormRepository>().Object,
+            new SmartFormValidationEngine());
+        var command = new CompleteTaskCommand(
+            TaskId: "task-123",
+            Outcome: "Approve",
+            CurrentUserId: "approver@corp.com",
+            CurrentUserRoles: new[] { "Process Manager" },
+            Comments: "Approved!");
 
         // Act
         var result = await handler.Handle(command, CancellationToken.None);
@@ -94,6 +106,7 @@ public class WorkflowHandlerTests
         result.TaskId.Should().Be("task-123");
         result.Outcome.Should().Be("Approve");
         task.Status.Should().Be(TaskStatus.Approved);
+        task.CompletedBy.Should().Be("approver@corp.com");
         uowMock.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 }

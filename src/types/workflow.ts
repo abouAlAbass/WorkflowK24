@@ -13,6 +13,7 @@ export interface TriggerNodeData {
   triggerType: TriggerType;
   eventName: string;
   variables: WorkflowVariable[];
+  formId?: string;
   description?: string;
 }
 
@@ -29,6 +30,8 @@ export interface ApprovalNodeData {
   outcomes: ApprovalOutcome[];
   allowReassignment?: boolean;
   dueDateDays?: number;
+  formId?: string;
+  formMode?: 'readonly' | 'editable';
   description?: string;
 }
 
@@ -47,16 +50,31 @@ export interface EndNodeData {
   message: string;
 }
 
+export type DecisionOperator =
+  | 'equals'
+  | 'not_equals'
+  | 'greater_than'
+  | 'greater_than_or_equal'
+  | 'less_than'
+  | 'less_than_or_equal'
+  | 'contains'
+  | 'not_contains'
+  | 'starts_with'
+  | 'ends_with'
+  | 'is_empty'
+  | 'is_not_empty';
+
 export interface DecisionCondition {
   id: string;
   field: string;
-  operator: 'equals' | 'not_equals' | 'greater_than' | 'less_than' | 'contains';
+  operator: DecisionOperator;
   value: string;
 }
 
 export interface DecisionNodeData {
   label: string;
   conditions: DecisionCondition[];
+  logicalOperator?: 'AND' | 'OR';
   trueOutcomeLabel: string;
   falseOutcomeLabel: string;
 }
@@ -156,6 +174,7 @@ export interface ExecutionLog {
 export type NavigationTab = 
   | 'dashboard' 
   | 'designer' 
+  | 'smartforms'
   | 'instances' 
   | 'smartobjects' 
   | 'tasks' 
@@ -165,7 +184,77 @@ export type NavigationTab =
 
 export type Environment = 'Development' | 'Staging' | 'Production';
 
-export type InstanceStatus = 'RUNNING' | 'COMPLETED' | 'FAILED' | 'PENDING';
+export type InstanceStatus =
+  | 'CREATED'
+  | 'RUNNING'
+  | 'WAITING'
+  | 'SUSPENDED'
+  | 'FAULTED'
+  | 'CANCELLED'
+  | 'COMPLETED'
+  | 'FAILED'
+  | 'PENDING';
+
+export interface ViewFlowInstanceInfo {
+  id: string;
+  status: string;
+  suspendedFromStatus?: string | null;
+  startedAt: string;
+  endedAt?: string | null;
+  version: number;
+  definitionId: number;
+  definitionVersion: number;
+}
+
+export interface ViewFlowNodeExecution {
+  nodeId: string;
+  type: string;
+  status: string;
+  attempts: number;
+  startedAt: string;
+  endedAt?: string | null;
+  error?: string | null;
+}
+
+export interface InstanceEventRecord {
+  id: number;
+  instanceId: string;
+  seq: number;
+  type: string;
+  nodeId?: string | null;
+  actorId?: string | null;
+  actorType: string;
+  payloadJson?: string | null;
+  createdAt: string;
+}
+
+export interface ViewFlowData {
+  instance: ViewFlowInstanceInfo;
+  definitionJson: string;
+  nodes: ViewFlowNodeExecution[];
+  activeNodes: string[];
+  activeTokens: string[];
+  timeline: InstanceEventRecord[];
+  variables: Record<string, unknown>;
+}
+
+export interface InstanceEventsPage {
+  instanceId: string;
+  afterSeq: number;
+  limit: number;
+  nextSeq?: number | null;
+  hasMore: boolean;
+  events: InstanceEventRecord[];
+}
+
+export interface InstanceCommandResponse {
+  instanceId: string;
+  status: string;
+  command: string;
+  commandId: string;
+  executedAt: string;
+  message: string;
+}
 
 export interface WorkflowInstance {
   id: string;
@@ -196,6 +285,9 @@ export interface ActionItemTask {
   amount?: string;
   description: string;
   outcomes: ApprovalOutcome[];
+  formId?: string | null;
+  formMode: 'readonly' | 'editable';
+  formData: Record<string, unknown>;
 }
 
 export interface SmartObjectField {

@@ -6,7 +6,10 @@ import type {
   SmartObjectRecord,
   UserRecord,
   AnalyticsKpiData,
-  SystemSettingsData
+  SystemSettingsData,
+  ViewFlowData,
+  InstanceEventsPage,
+  InstanceCommandResponse
 } from '../types/workflow';
 import type {
   WorkflowRepository,
@@ -100,6 +103,19 @@ export class HttpWorkflowRepository implements WorkflowRepository {
     return this.authSession;
   }
 
+  async changePassword(currentPassword: string, newPassword: string): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/auth/change-password`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ currentPassword, newPassword })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Password update failed: ${errorText}`);
+    }
+  }
+
   async getDefinitions(): Promise<SavedWorkflowRecord[]> {
     const response = await fetch(`${this.baseUrl}/definitions`, {
       headers: this.getHeaders()
@@ -148,9 +164,28 @@ export class HttpWorkflowRepository implements WorkflowRepository {
     }
   }
 
-  async deleteDefinition(_id: string): Promise<void> {
-    // Definitions are versioned snapshots in the backend registry
-    return Promise.resolve();
+  async deleteDefinition(id: string): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/definitions/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: this.getHeaders()
+    });
+
+    if (!response.ok && response.status !== 404) {
+      throw new Error(`Failed to delete definition '${id}': ${response.statusText}`);
+    }
+  }
+
+  private static formatDurationSeconds(seconds?: number): string {
+    if (typeof seconds !== 'number' || Number.isNaN(seconds) || seconds < 1) {
+      return '< 1s';
+    }
+    const totalSec = Math.floor(seconds);
+    const hours = Math.floor(totalSec / 3600);
+    const mins = Math.floor((totalSec % 3600) / 60);
+    const secs = totalSec % 60;
+    if (hours > 0) return `${hours}h ${mins}m`;
+    if (mins > 0) return `${mins}m ${secs}s`;
+    return `${secs}s`;
   }
 
   async getInstances(): Promise<WorkflowInstance[]> {
@@ -165,16 +200,18 @@ export class HttpWorkflowRepository implements WorkflowRepository {
     const data = await response.json();
     return data.map((i: any) => ({
       id: i.instanceId,
-      workflowName: i.workflowKey,
+      workflowName: i.workflowName || i.workflowKey,
       templateKey: 'custom',
       requester: i.initiatorId,
       requesterAvatar: '/avatars/user-6.svg',
-      startedAt: new Date(i.startedAt).toLocaleTimeString(),
-      currentStep: i.currentNodeId || 'Running',
-      progress: i.status === 'Completed' ? 100 : 50,
-      status: i.status.toUpperCase(),
-      duration: 'Active',
-      department: 'Corporate'
+      startedAt: new Date(i.startedAt).toLocaleString(),
+      currentStep: i.currentNodeLabel || i.currentNodeId || 'Running',
+      progress: typeof i.progressPercentage === 'number'
+        ? i.progressPercentage
+        : (i.status === 'Completed' ? 100 : 50),
+      status: String(i.status || 'RUNNING').toUpperCase(),
+      duration: HttpWorkflowRepository.formatDurationSeconds(i.durationSeconds),
+      department: i.department || 'Operations'
     }));
   }
 
@@ -221,9 +258,139 @@ export class HttpWorkflowRepository implements WorkflowRepository {
     return await response.json();
   }
 
+  private async parseErrorAndThrow(response: Response, fallbackMessage: string): Promise<never> {
+    let message = fallbackMessage;
+    let code: string | undefined;
+    try {
+      const contentType = response.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const body = await response.json();
+        message = body.error || body.title || body.message || fallbackMessage;
+        code = body.code;
+      } else {
+        const text = await response.text();
+        if (text) message = text;
+      }
+    } catch {
+      // Keep fallback message
+    }
+
+    const err = new Error(message) as Error & { status?: number; code?: string };
+    err.status = response.status;
+    err.code = code;
+    throw err;
+  }
+
+  async getInstanceFlow(id: string): Promise<ViewFlowData> {
+    const response = await fetch(`${this.baseUrl}/instances/${encodeURIComponent(id)}/flow`, {
+      headers: this.getHeaders()
+    });
+
+    if (!response.ok) {
+      await this.parseErrorAndThrow(response, `Failed to load ViewFlow for instance '${id}'.`);
+    }
+
+    return await response.json();
+  }
+
+  async getInstanceEvents(id: string, afterSeq = 0, limit = 50): Promise<InstanceEventsPage> {
+    const params = new URLSearchParams({
+      afterSeq: String(afterSeq),
+      limit: String(limit)
+    });
+    const response = await fetch(`${this.baseUrl}/instances/${encodeURIComponent(id)}/events?${params.toString()}`, {
+      headers: this.getHeaders()
+    });
+
+    if (!response.ok) {
+      await this.parseErrorAndThrow(response, `Failed to load events for instance '${id}'.`);
+    }
+
+    return await response.json();
+  }
+
+  async suspendInstance(id: string, reason?: string): Promise<InstanceCommandResponse> {
+    const commandId = crypto.randomUUID();
+    const response = await fetch(`${this.baseUrl}/instances/${encodeURIComponent(id)}/commands/suspend`, {
+      method: 'POST',
+      headers: {
+        ...this.getHeaders(),
+        'Idempotency-Key': commandId
+      },
+      body: JSON.stringify({ commandId, reason })
+    });
+
+    if (!response.ok) {
+      await this.parseErrorAndThrow(response, `Failed to suspend instance '${id}'.`);
+    }
+
+    return await response.json();
+  }
+
+  async resumeInstance(id: string): Promise<InstanceCommandResponse> {
+    const commandId = crypto.randomUUID();
+    const response = await fetch(`${this.baseUrl}/instances/${encodeURIComponent(id)}/commands/resume`, {
+      method: 'POST',
+      headers: {
+        ...this.getHeaders(),
+        'Idempotency-Key': commandId
+      },
+      body: JSON.stringify({ commandId })
+    });
+
+    if (!response.ok) {
+      await this.parseErrorAndThrow(response, `Failed to resume instance '${id}'.`);
+    }
+
+    return await response.json();
+  }
+
+  async cancelInstance(id: string, reason: string): Promise<InstanceCommandResponse> {
+    const commandId = crypto.randomUUID();
+    const response = await fetch(`${this.baseUrl}/instances/${encodeURIComponent(id)}/commands/cancel`, {
+      method: 'POST',
+      headers: {
+        ...this.getHeaders(),
+        'Idempotency-Key': commandId
+      },
+      body: JSON.stringify({ commandId, reason })
+    });
+
+    if (!response.ok) {
+      await this.parseErrorAndThrow(response, `Failed to cancel instance '${id}'.`);
+    }
+
+    return await response.json();
+  }
+
+  async retryInstance(
+    id: string,
+    mode: 'retry_failed_node' | 'retry_from_node' = 'retry_failed_node',
+    fromNodeId?: string
+  ): Promise<InstanceCommandResponse> {
+    const commandId = crypto.randomUUID();
+    const response = await fetch(`${this.baseUrl}/instances/${encodeURIComponent(id)}/commands/retry`, {
+      method: 'POST',
+      headers: {
+        ...this.getHeaders(),
+        'Idempotency-Key': commandId
+      },
+      body: JSON.stringify({ commandId, mode, fromNodeId })
+    });
+
+    if (!response.ok) {
+      await this.parseErrorAndThrow(response, `Failed to retry instance '${id}'.`);
+    }
+
+    return await response.json();
+  }
+
   async getTasks(assigneeId?: string): Promise<ActionItemTask[]> {
-    const targetAssignee = assigneeId || this.authSession?.user.email || 'adel.sebti@corp.internal';
-    const response = await fetch(`${this.baseUrl}/tasks/assignee/${encodeURIComponent(targetAssignee)}`, {
+    const endpoint = assigneeId
+      ? `${this.baseUrl}/tasks/assignee/${encodeURIComponent(assigneeId)}`
+      : `${this.baseUrl}/tasks?status=Pending`;
+
+    const response = await fetch(endpoint, {
       headers: this.getHeaders()
     });
 
@@ -236,31 +403,49 @@ export class HttpWorkflowRepository implements WorkflowRepository {
       id: t.taskId,
       instanceId: t.instanceId,
       title: t.taskTitle,
-      workflowName: 'Enterprise Workflow',
-      requester: t.completedBy || 'System',
+      workflowName: t.workflowName || 'Enterprise Workflow',
+      requester: t.initiatorId || t.completedBy || 'System',
       requesterAvatar: '/avatars/user-2.svg',
       department: t.assigneeType,
       requestedAt: t.assignedAt,
       dueDate: t.dueDate ? new Date(t.dueDate).toLocaleDateString() : 'N/A',
-      status: t.status.toUpperCase(),
+      status: String(t.status || 'PENDING').toUpperCase(),
       priority: 'High',
       description: `Pending outcome decision for node ${t.nodeId}`,
-      outcomes: [
-        { id: 'approve', label: 'Approve', color: '#059669' },
-        { id: 'reject', label: 'Reject', color: '#DC2626' }
-      ]
+      outcomes: Array.isArray(t.outcomes) && t.outcomes.length > 0
+        ? t.outcomes.map((o: any) => ({
+            id: o.id,
+            label: o.label,
+            color: o.color || '#2563EB'
+          }))
+        : [
+            { id: 'approve', label: 'Approve', color: '#059669' },
+            { id: 'reject', label: 'Reject', color: '#DC2626' }
+          ],
+      formId: t.formId ?? null,
+      formMode: t.formMode === 'editable' ? 'editable' : 'readonly',
+      formData: t.formData && typeof t.formData === 'object' ? t.formData : {}
     }));
   }
 
-  async completeTask(taskId: string, outcome: string, completedBy: string, comments?: string): Promise<void> {
-    const response = await fetch(`${this.baseUrl}/tasks/${taskId}/complete`, {
+  async completeTask(
+    taskId: string,
+    outcome: string,
+    comments?: string,
+    formPatch?: Record<string, unknown>
+  ): Promise<void> {
+    const payload: Record<string, unknown> = { outcome };
+    if (comments !== undefined) {
+      payload.comments = comments;
+    }
+    if (formPatch && Object.keys(formPatch).length > 0) {
+      payload.formPatch = formPatch;
+    }
+
+    const response = await fetch(`${this.baseUrl}/tasks/${encodeURIComponent(taskId)}/complete`, {
       method: 'POST',
       headers: this.getHeaders(),
-      body: JSON.stringify({
-        outcome,
-        completedBy: completedBy || this.authSession?.user.email || 'user@corp.internal',
-        comments
-      })
+      body: JSON.stringify(payload)
     });
 
     if (!response.ok) {

@@ -47,6 +47,16 @@ public class WorkflowAuditLogConfiguration : IEntityTypeConfiguration<WorkflowAu
         builder.Property(a => a.StateSnapshotJson)
             .IsRequired(false);
 
+        builder.Property(a => a.ActorUserId)
+            .HasMaxLength(255)
+            .IsRequired(false);
+
+        builder.Property(a => a.BeforeJson)
+            .IsRequired(false);
+
+        builder.Property(a => a.AfterJson)
+            .IsRequired(false);
+
         builder.Property(a => a.LoggedAt)
             .IsRequired();
 

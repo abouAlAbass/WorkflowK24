@@ -14,7 +14,8 @@ public static class SmartObjectEndpoints
     public static IEndpointRouteBuilder MapSmartObjectEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/smartobjects")
-            .WithTags("SmartObjects");
+            .WithTags("SmartObjects")
+            .RequireAuthorization();
 
         // 1. Get all Smart Object definitions
         group.MapGet("/", async (IMessageBus bus, CancellationToken ct) =>
@@ -43,6 +44,7 @@ public static class SmartObjectEndpoints
             var created = await bus.InvokeAsync<SmartObjectDto>(command, ct);
             return Results.Created($"/api/smartobjects/{created.Id}", created);
         })
+        .RequireAuthorization("DesignerOrAdmin")
         .WithName("CreateSmartObject")
         .WithSummary("Creates a new Smart Object entity schema.");
 
@@ -58,6 +60,7 @@ public static class SmartObjectEndpoints
 
             return updated != null ? Results.Ok(updated) : Results.NotFound();
         })
+        .RequireAuthorization("DesignerOrAdmin")
         .WithName("UpdateSmartObject")
         .WithSummary("Updates an existing Smart Object schema metadata and fields.");
 
@@ -72,6 +75,7 @@ public static class SmartObjectEndpoints
 
             return deleted ? Results.NoContent() : Results.NotFound();
         })
+        .RequireAuthorization("DesignerOrAdmin")
         .WithName("DeleteSmartObject")
         .WithSummary("Deletes a Smart Object schema and all its associated data records.");
 

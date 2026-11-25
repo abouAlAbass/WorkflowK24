@@ -13,7 +13,7 @@ public class CompleteTaskValidator : AbstractValidator<CompleteTaskCommand>
         RuleFor(x => x.Outcome)
             .NotEmpty().WithMessage("Outcome decision is required.");
 
-        RuleFor(x => x.CompletedBy)
-            .NotEmpty().WithMessage("CompletedBy user email/ID is required.");
+        RuleFor(x => x.CurrentUserId)
+            .NotEmpty().WithMessage("Authenticated actor identity is required.");
     }
 }

@@ -58,7 +58,10 @@ public class WorkflowDiagnosticHandlers
             l.EventSummary,
             l.OutcomeBranch,
             l.StateSnapshotJson,
-            l.LoggedAt
+            l.LoggedAt,
+            l.ActorUserId,
+            l.BeforeJson,
+            l.AfterJson
         )).ToList();
     }
 }

@@ -119,7 +119,16 @@ const INITIAL_ACTION_TASKS: ActionItemTask[] = [
       { id: 'approve', label: 'Approve Hire', color: '#059669' },
       { id: 'reject', label: 'Reject', color: '#DC2626' },
       { id: 'info', label: 'Request Revision', color: '#D97706' }
-    ]
+    ],
+    formId: 'form-onboarding',
+    formMode: 'readonly',
+    formData: {
+      FullName: 'Sofiane Haddad',
+      Department: 'Engineering',
+      Salary: '120000',
+      HireDate: '2026-09-01',
+      RequiresVpnHardware: true
+    }
   },
   {
     id: 'TASK-102',
@@ -138,7 +147,16 @@ const INITIAL_ACTION_TASKS: ActionItemTask[] = [
     outcomes: [
       { id: 'approve', label: 'Approve PO', color: '#059669' },
       { id: 'reject', label: 'Reject PO', color: '#DC2626' }
-    ]
+    ],
+    formId: 'form-purchase-req',
+    formMode: 'editable',
+    formData: {
+      VendorName: 'Dell Technologies',
+      Department: 'Finance',
+      Amount: '17495',
+      NeededByDate: '2026-09-15',
+      ExecutiveJustification: 'Hardware refresh order for Q3 engineering leads and architects.'
+    }
   },
   {
     id: 'TASK-103',
@@ -156,7 +174,10 @@ const INITIAL_ACTION_TASKS: ActionItemTask[] = [
     outcomes: [
       { id: 'approve', label: 'Grant Access', color: '#059669' },
       { id: 'reject', label: 'Deny', color: '#DC2626' }
-    ]
+    ],
+    formId: null,
+    formMode: 'readonly',
+    formData: {}
   }
 ];
 
@@ -603,7 +624,12 @@ interface WorkflowState {
   setCurrentEnv: (env: Environment) => void;
 
   // Task & Instance Actions
-  resolveTask: (taskId: string, outcomeId: string, comment?: string) => void;
+  resolveTask: (
+    taskId: string,
+    outcomeId: string,
+    comment?: string,
+    formPatch?: Record<string, unknown>
+  ) => void;
   launchQuickWorkflow: (templateKey: 'onboarding' | 'expense' | 'itAccess') => void;
 
   // Store Actions
@@ -913,14 +939,22 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     });
   },
 
-  resolveTask: (taskId, outcomeId, comment) => {
+  resolveTask: (taskId, outcomeId, comment, formPatch) => {
     const task = get().actionItemTasks.find(t => t.id === taskId);
     if (!task) return;
 
+    const effectivePatch =
+      task.formMode === 'editable' && formPatch && Object.keys(formPatch).length > 0
+        ? formPatch
+        : undefined;
+
     const repo = getWorkflowRepository();
-    repo.completeTask(taskId, outcomeId, 'Current User', comment).catch((err: any) => {
+    repo.completeTask(taskId, outcomeId, comment, effectivePatch).catch((err: any) => {
       console.warn('Repository task completion error:', err);
     });
+
+    const isRejected =
+      outcomeId.toLowerCase().includes('reject') || outcomeId.toLowerCase().includes('deny');
 
     set((state) => ({
       actionItemTasks: state.actionItemTasks.filter(t => t.id !== taskId),
@@ -928,9 +962,9 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         if (inst.id === task.instanceId) {
           return {
             ...inst,
-            status: outcomeId === 'reject' ? 'FAILED' : 'COMPLETED',
+            status: isRejected ? 'FAILED' : 'COMPLETED',
             progress: 100,
-            currentStep: outcomeId === 'reject' ? 'Rejected by Manager' : 'Completed Successfully'
+            currentStep: isRejected ? 'Rejected by Approver' : 'Completed Successfully'
           };
         }
         return inst;
@@ -940,7 +974,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
           timestamp: new Date().toLocaleTimeString(),
           nodeId: taskId,
           nodeName: task.title,
-          status: outcomeId === 'reject' ? 'error' : 'success',
+          status: isRejected ? 'error' : 'success',
           message: `Decision outcome "${outcomeId.toUpperCase()}" logged for ${task.instanceId}.${comment ? ` Comment: "${comment}"` : ''}`
         },
         ...state.simulationLogs

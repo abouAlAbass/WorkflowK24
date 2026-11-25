@@ -14,7 +14,8 @@ public static class UserEndpoints
     public static IEndpointRouteBuilder MapUserEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/users")
-            .WithTags("Users");
+            .WithTags("Users")
+            .RequireAuthorization();
 
         // 1. Get all system users
         group.MapGet("/", async (IMessageBus bus, CancellationToken ct) =>
@@ -43,6 +44,7 @@ public static class UserEndpoints
             var created = await bus.InvokeAsync<UserDto>(command, ct);
             return Results.Created($"/api/users/{created.Id}", created);
         })
+        .RequireAuthorization("AdminOnly")
         .WithName("CreateUser")
         .WithSummary("Creates a new system user profile.");
 
@@ -52,6 +54,7 @@ public static class UserEndpoints
             var deleted = await bus.InvokeAsync<bool>(new DeleteUserCommand(id), ct);
             return deleted ? Results.NoContent() : Results.NotFound();
         })
+        .RequireAuthorization("AdminOnly")
         .WithName("DeleteUser")
         .WithSummary("Deletes a system user profile by ID.");
 

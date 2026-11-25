@@ -23,5 +23,8 @@ public record AuditLogDto(
     string EventSummary,
     string? OutcomeBranch,
     string? StateSnapshotJson,
-    DateTime LoggedAt
+    DateTime LoggedAt,
+    string? ActorUserId = null,
+    string? BeforeJson = null,
+    string? AfterJson = null
 );

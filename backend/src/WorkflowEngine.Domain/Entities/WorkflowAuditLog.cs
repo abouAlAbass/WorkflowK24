@@ -16,6 +16,9 @@ public class WorkflowAuditLog
     public string EventSummary { get; private set; } = default!;
     public string? OutcomeBranch { get; private set; }
     public string? StateSnapshotJson { get; private set; }
+    public string? ActorUserId { get; private set; }
+    public string? BeforeJson { get; private set; }
+    public string? AfterJson { get; private set; }
     public DateTime LoggedAt { get; private set; } = DateTime.UtcNow;
 
     public WorkflowInstance Instance { get; private set; } = default!;
@@ -30,7 +33,10 @@ public class WorkflowAuditLog
         AuditEventType eventType, 
         string summary, 
         string? outcome = null, 
-        string? stateSnapshot = null)
+        string? stateSnapshot = null,
+        string? actorUserId = null,
+        string? beforeJson = null,
+        string? afterJson = null)
     {
         InstanceId = instanceId ?? throw new ArgumentNullException(nameof(instanceId));
         SequenceNumber = seq;
@@ -40,6 +46,9 @@ public class WorkflowAuditLog
         EventSummary = summary ?? throw new ArgumentNullException(nameof(summary));
         OutcomeBranch = outcome;
         StateSnapshotJson = stateSnapshot;
+        ActorUserId = actorUserId;
+        BeforeJson = beforeJson;
+        AfterJson = afterJson;
         LoggedAt = DateTime.UtcNow;
     }
 }

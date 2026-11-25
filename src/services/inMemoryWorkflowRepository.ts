@@ -6,7 +6,12 @@ import type {
   SmartObjectRecord,
   UserRecord,
   AnalyticsKpiData,
-  SystemSettingsData
+  SystemSettingsData,
+  ViewFlowData,
+  InstanceEventsPage,
+  InstanceCommandResponse,
+  InstanceEventRecord,
+  ViewFlowNodeExecution
 } from '../types/workflow';
 import type {
   WorkflowRepository,
@@ -91,7 +96,16 @@ const INITIAL_DEMO_TASKS: ActionItemTask[] = [
       { id: 'approve', label: 'Approve Hire', color: '#059669' },
       { id: 'reject', label: 'Reject', color: '#DC2626' },
       { id: 'info', label: 'Request Revision', color: '#D97706' }
-    ]
+    ],
+    formId: 'form-onboarding',
+    formMode: 'readonly',
+    formData: {
+      FullName: 'Sofiane Haddad',
+      Department: 'Engineering',
+      Salary: '120000',
+      HireDate: '2026-09-01',
+      RequiresVpnHardware: true
+    }
   },
   {
     id: 'TASK-102',
@@ -110,7 +124,16 @@ const INITIAL_DEMO_TASKS: ActionItemTask[] = [
     outcomes: [
       { id: 'approve', label: 'Authorize PO', color: '#059669' },
       { id: 'reject', label: 'Decline PO', color: '#DC2626' }
-    ]
+    ],
+    formId: 'form-purchase-req',
+    formMode: 'editable',
+    formData: {
+      VendorName: 'Dell Technologies',
+      Department: 'Engineering',
+      Amount: '14500',
+      NeededByDate: '2026-09-15',
+      ExecutiveJustification: 'Hardware refresh for core engineering team leads.'
+    }
   }
 ];
 
@@ -242,6 +265,13 @@ export class InMemoryWorkflowRepository implements WorkflowRepository {
     return this.authSession;
   }
 
+  async changePassword(_currentPassword: string, newPassword: string): Promise<void> {
+    if (!newPassword || newPassword.length < 8) {
+      throw new Error('New password must contain at least 8 characters.');
+    }
+    return Promise.resolve();
+  }
+
   async getDefinitions(): Promise<SavedWorkflowRecord[]> {
     try {
       const raw = localStorage.getItem(DEMO_STORAGE_KEY);
@@ -300,16 +330,279 @@ export class InMemoryWorkflowRepository implements WorkflowRepository {
       }));
   }
 
+  private instanceEventsStore: Record<string, InstanceEventRecord[]> = {};
+  private instanceSuspendedFrom: Record<string, WorkflowInstance['status']> = {};
+  private instanceVersions: Record<string, number> = {};
+
+  private ensureDemoEvents(inst: WorkflowInstance): InstanceEventRecord[] {
+    if (!this.instanceEventsStore[inst.id]) {
+      const baseTime = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+      this.instanceEventsStore[inst.id] = [
+        {
+          id: 1,
+          instanceId: inst.id,
+          seq: 1,
+          type: 'Instance.Started',
+          nodeId: 'trig-1',
+          actorId: inst.requester,
+          actorType: 'user',
+          payloadJson: JSON.stringify({ workflowName: inst.workflowName }),
+          createdAt: baseTime
+        }
+      ];
+    }
+    return this.instanceEventsStore[inst.id];
+  }
+
+  private appendDemoEvent(instanceId: string, type: string, nodeId: string | null, payload: Record<string, unknown>): void {
+    const list = this.instanceEventsStore[instanceId] || [];
+    const nextSeq = list.length > 0 ? list[list.length - 1].seq + 1 : 1;
+    list.push({
+      id: Date.now() + nextSeq,
+      instanceId,
+      seq: nextSeq,
+      type,
+      nodeId,
+      actorId: this.authSession?.user?.email || 'demo@corp.internal',
+      actorType: 'user',
+      payloadJson: JSON.stringify(payload),
+      createdAt: new Date().toISOString()
+    });
+    this.instanceEventsStore[instanceId] = list;
+  }
+
+  async getInstanceFlow(id: string): Promise<ViewFlowData> {
+    const inst = this.instances.find(i => i.id === id);
+    if (!inst) {
+      const err = new Error(`Workflow instance '${id}' not found.`) as Error & { status?: number };
+      err.status = 404;
+      throw err;
+    }
+
+    const timeline = this.ensureDemoEvents(inst);
+    const nowIso = new Date().toISOString();
+    const startIso = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    const normalizedStatus = inst.status === 'FAILED' ? 'Faulted'
+      : inst.status === 'PENDING' ? 'Waiting'
+      : inst.status.charAt(0) + inst.status.slice(1).toLowerCase();
+
+    const nodes: ViewFlowNodeExecution[] = [
+      {
+        nodeId: 'trig-1',
+        type: 'trigger',
+        status: 'Completed',
+        attempts: 1,
+        startedAt: startIso,
+        endedAt: startIso
+      },
+      {
+        nodeId: 'node-current',
+        type: 'approval',
+        status: normalizedStatus === 'Completed' ? 'Completed'
+          : normalizedStatus === 'Faulted' ? 'Failed'
+          : normalizedStatus === 'Cancelled' ? 'Cancelled'
+          : 'Waiting',
+        attempts: 1,
+        startedAt: startIso,
+        endedAt: normalizedStatus === 'Completed' || normalizedStatus === 'Faulted' || normalizedStatus === 'Cancelled' ? nowIso : null,
+        error: normalizedStatus === 'Faulted' ? 'Simulated execution failure on node' : null
+      }
+    ];
+
+    const isTerminal = normalizedStatus === 'Completed' || normalizedStatus === 'Cancelled';
+    const activeNodes = isTerminal ? [] : ['node-current'];
+
+    return {
+      instance: {
+        id: inst.id,
+        status: normalizedStatus,
+        suspendedFromStatus: this.instanceSuspendedFrom[inst.id] ?? null,
+        startedAt: startIso,
+        endedAt: isTerminal ? nowIso : null,
+        version: this.instanceVersions[inst.id] ?? 1,
+        definitionId: 1,
+        definitionVersion: 1
+      },
+      definitionJson: JSON.stringify({ id: inst.templateKey, name: inst.workflowName, version: '1.0', nodes: [], edges: [] }),
+      nodes,
+      activeNodes,
+      activeTokens: activeNodes,
+      timeline: [...timeline],
+      variables: {
+        department: inst.department,
+        requester: inst.requester
+      }
+    };
+  }
+
+  async getInstanceEvents(id: string, afterSeq = 0, limit = 50): Promise<InstanceEventsPage> {
+    const inst = this.instances.find(i => i.id === id);
+    if (!inst) {
+      const err = new Error(`Workflow instance '${id}' not found.`) as Error & { status?: number };
+      err.status = 404;
+      throw err;
+    }
+
+    const boundedLimit = Math.max(1, Math.min(200, limit));
+    const all = this.ensureDemoEvents(inst).filter(e => e.seq > afterSeq);
+    const slice = all.slice(0, boundedLimit);
+    return {
+      instanceId: id,
+      afterSeq,
+      limit: boundedLimit,
+      nextSeq: slice.length > 0 ? slice[slice.length - 1].seq : null,
+      hasMore: all.length > boundedLimit,
+      events: slice
+    };
+  }
+
+  async suspendInstance(id: string, reason?: string): Promise<InstanceCommandResponse> {
+    const commandId = crypto.randomUUID();
+    const inst = this.instances.find(i => i.id === id);
+    if (!inst) {
+      const err = new Error(`Workflow instance '${id}' not found.`) as Error & { status?: number };
+      err.status = 404;
+      throw err;
+    }
+    if (inst.status !== 'RUNNING' && inst.status !== 'WAITING' && inst.status !== 'PENDING') {
+      const err = new Error(`Cannot suspend instance in status '${inst.status}'.`) as Error & { status?: number; code?: string };
+      err.status = 409;
+      err.code = 'INVALID_TRANSITION';
+      throw err;
+    }
+
+    this.instanceSuspendedFrom[id] = inst.status;
+    inst.status = 'SUSPENDED';
+    this.instanceVersions[id] = (this.instanceVersions[id] ?? 1) + 1;
+    this.ensureDemoEvents(inst);
+    this.appendDemoEvent(id, 'Instance.Suspended', 'node-current', { reason: reason || 'Suspended by user' });
+
+    return {
+      instanceId: id,
+      status: 'Suspended',
+      command: 'Suspend',
+      commandId,
+      executedAt: new Date().toISOString(),
+      message: `Instance '${id}' suspended successfully.`
+    };
+  }
+
+  async resumeInstance(id: string): Promise<InstanceCommandResponse> {
+    const commandId = crypto.randomUUID();
+    const inst = this.instances.find(i => i.id === id);
+    if (!inst) {
+      const err = new Error(`Workflow instance '${id}' not found.`) as Error & { status?: number };
+      err.status = 404;
+      throw err;
+    }
+    if (inst.status !== 'SUSPENDED') {
+      const err = new Error(`Cannot resume instance in status '${inst.status}'.`) as Error & { status?: number; code?: string };
+      err.status = 409;
+      err.code = 'INVALID_TRANSITION';
+      throw err;
+    }
+
+    inst.status = this.instanceSuspendedFrom[id] || 'RUNNING';
+    delete this.instanceSuspendedFrom[id];
+    this.instanceVersions[id] = (this.instanceVersions[id] ?? 1) + 1;
+    this.ensureDemoEvents(inst);
+    this.appendDemoEvent(id, 'Instance.Resumed', 'node-current', {});
+
+    return {
+      instanceId: id,
+      status: inst.status === 'PENDING' ? 'Waiting' : 'Running',
+      command: 'Resume',
+      commandId,
+      executedAt: new Date().toISOString(),
+      message: `Instance '${id}' resumed successfully.`
+    };
+  }
+
+  async cancelInstance(id: string, reason: string): Promise<InstanceCommandResponse> {
+    const commandId = crypto.randomUUID();
+    if (!reason || reason.trim().length < 10) {
+      const err = new Error('Cancellation reason must be at least 10 characters long.') as Error & { status?: number };
+      err.status = 400;
+      throw err;
+    }
+    const inst = this.instances.find(i => i.id === id);
+    if (!inst) {
+      const err = new Error(`Workflow instance '${id}' not found.`) as Error & { status?: number };
+      err.status = 404;
+      throw err;
+    }
+    if (inst.status === 'COMPLETED' || inst.status === 'CANCELLED') {
+      const err = new Error(`Cannot cancel instance in terminal status '${inst.status}'.`) as Error & { status?: number; code?: string };
+      err.status = 409;
+      err.code = 'INVALID_TRANSITION';
+      throw err;
+    }
+
+    inst.status = 'CANCELLED';
+    this.instanceVersions[id] = (this.instanceVersions[id] ?? 1) + 1;
+    this.ensureDemoEvents(inst);
+    this.appendDemoEvent(id, 'Instance.Cancelled', 'node-current', { reason });
+
+    return {
+      instanceId: id,
+      status: 'Cancelled',
+      command: 'Cancel',
+      commandId,
+      executedAt: new Date().toISOString(),
+      message: `Instance '${id}' cancelled successfully.`
+    };
+  }
+
+  async retryInstance(
+    id: string,
+    mode: 'retry_failed_node' | 'retry_from_node' = 'retry_failed_node',
+    fromNodeId?: string
+  ): Promise<InstanceCommandResponse> {
+    const commandId = crypto.randomUUID();
+    const inst = this.instances.find(i => i.id === id);
+    if (!inst) {
+      const err = new Error(`Workflow instance '${id}' not found.`) as Error & { status?: number };
+      err.status = 404;
+      throw err;
+    }
+    if (inst.status !== 'FAULTED' && inst.status !== 'FAILED') {
+      const err = new Error(`Cannot retry instance in status '${inst.status}'.`) as Error & { status?: number; code?: string };
+      err.status = 409;
+      err.code = 'INVALID_TRANSITION';
+      throw err;
+    }
+
+    inst.status = 'RUNNING';
+    this.instanceVersions[id] = (this.instanceVersions[id] ?? 1) + 1;
+    this.ensureDemoEvents(inst);
+    this.appendDemoEvent(id, 'Instance.RetryRequested', fromNodeId || 'node-current', { mode, fromNodeId });
+
+    return {
+      instanceId: id,
+      status: 'Running',
+      command: 'Retry',
+      commandId,
+      executedAt: new Date().toISOString(),
+      message: `Instance '${id}' retry initiated successfully.`
+    };
+  }
+
   async getTasks(): Promise<ActionItemTask[]> {
     return [...this.tasks];
   }
 
-  async completeTask(taskId: string, outcome: string): Promise<void> {
+  async completeTask(
+    taskId: string,
+    outcome: string,
+    _comments?: string,
+    formPatch?: Record<string, unknown>
+  ): Promise<void> {
     this.tasks = this.tasks.map(t => {
       if (t.id === taskId) {
         return {
           ...t,
-          status: outcome.toLowerCase() === 'reject' ? 'FAILED' : 'COMPLETED'
+          formData: t.formMode === 'editable' && formPatch ? { ...t.formData, ...formPatch } : t.formData,
+          status: outcome.toLowerCase().includes('reject') ? 'FAILED' : 'COMPLETED'
         };
       }
       return t;

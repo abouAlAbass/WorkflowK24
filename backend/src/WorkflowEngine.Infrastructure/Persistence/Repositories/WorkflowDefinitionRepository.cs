@@ -57,4 +57,32 @@ public class WorkflowDefinitionRepository : IWorkflowDefinitionRepository
     {
         _dbContext.WorkflowDefinitions.Update(definition);
     }
+
+    public async Task<bool> DeleteByKeyAsync(string workflowKey, CancellationToken ct = default)
+    {
+        var definition = await _dbContext.WorkflowDefinitions
+            .Include(d => d.Versions)
+            .FirstOrDefaultAsync(d => d.WorkflowKey == workflowKey, ct);
+
+        if (definition == null)
+        {
+            return false;
+        }
+
+        var versionIds = definition.Versions.Select(v => v.VersionId).ToList();
+        if (versionIds.Count > 0)
+        {
+            var instances = await _dbContext.WorkflowInstances
+                .Where(i => versionIds.Contains(i.VersionId))
+                .ToListAsync(ct);
+
+            if (instances.Count > 0)
+            {
+                _dbContext.WorkflowInstances.RemoveRange(instances);
+            }
+        }
+
+        _dbContext.WorkflowDefinitions.Remove(definition);
+        return true;
+    }
 }

@@ -3,6 +3,7 @@ import { AppLayout } from './components/layout/AppLayout';
 import { HomeDashboard } from './components/dashboard/HomeDashboard';
 import { ActiveInstancesView } from './components/views/ActiveInstancesView';
 import { DataModelsView } from './components/views/DataModelsView';
+import { SmartFormsView } from './components/views/SmartFormsView';
 import { TaskCenterView } from './components/views/TaskCenterView';
 import { AnalyticsView } from './components/views/AnalyticsView';
 import { UsersView } from './components/views/UsersView';
@@ -16,8 +17,11 @@ import { JsonSchemaModal } from './components/modals/JsonSchemaModal';
 import { ValidationModal } from './components/modals/ValidationModal';
 import { ModeSelectorModal } from './components/modals/ModeSelectorModal';
 import { useWorkflowStore } from './hooks/useWorkflowStore';
+import { useSmartFormStore } from './store/useSmartFormStore';
+import { useUrlRouter } from './hooks/useUrlRouter';
 
 export function App() {
+  useUrlRouter();
   const [isJsonModalOpen, setIsJsonModalOpen] = useState(false);
   const [jsonModalTab, setJsonModalTab] = useState<'export' | 'import' | 'database'>('export');
   const [isValidationModalOpen, setIsValidationModalOpen] = useState(false);
@@ -26,10 +30,12 @@ export function App() {
   const isModeModalOpen = useWorkflowStore((state) => state.isModeModalOpen);
   const closeModeModal = useWorkflowStore((state) => state.closeModeModal);
   const syncDataFromRepository = useWorkflowStore((state) => state.syncDataFromRepository);
+  const syncForms = useSmartFormStore((state) => state.syncForms);
 
   useEffect(() => {
     syncDataFromRepository();
-  }, [syncDataFromRepository]);
+    syncForms();
+  }, [syncDataFromRepository, syncForms]);
 
   const handleOpenJsonModal = (tab: 'export' | 'import' | 'database' = 'export') => {
     setJsonModalTab(tab);
@@ -56,6 +62,9 @@ export function App() {
             </div>
           </div>
         );
+
+      case 'smartforms':
+        return <SmartFormsView />;
 
       case 'instances':
         return <ActiveInstancesView />;

@@ -52,5 +52,8 @@ public class WorkflowDefinitionConfiguration : IEntityTypeConfiguration<Workflow
             .HasForeignKey(v => v.DefinitionId)
             .HasConstraintName("FK_WorkflowVersions_Definitions")
             .OnDelete(DeleteBehavior.Cascade);
+
+        builder.Navigation(d => d.Versions)
+            .UsePropertyAccessMode(PropertyAccessMode.Field);
     }
 }

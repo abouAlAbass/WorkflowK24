@@ -77,6 +77,37 @@ export interface Translations {
     closeDrawer: string;
     draftAutoSaved: string;
   };
+  nav: {
+    dashboard: string;
+    designer: string;
+    smartforms: string;
+    instances: string;
+    smartobjects: string;
+    tasks: string;
+    analytics: string;
+    users: string;
+    settings: string;
+    collapseSidebar: string;
+    expandSidebar: string;
+    engineFooter: string;
+  };
+  profile: {
+    selectLanguage: string;
+    selectEnvironment: string;
+    requestedBy: string;
+    due: string;
+    noPendingNotifications: string;
+    switchRuntimeMode: string;
+    changePassword: string;
+    signOut: string;
+    currentPassword: string;
+    newPassword: string;
+    savePassword: string;
+    cancel: string;
+    passwordUpdated: string;
+    connectedSession: string;
+    demoSession: string;
+  };
 }
 
 export const translations: Record<SupportedLanguage, Translations> = {
@@ -180,6 +211,37 @@ export const translations: Record<SupportedLanguage, Translations> = {
       closeDrawer: 'Close inspector drawer',
       draftAutoSaved: 'Draft auto-saved',
     },
+    nav: {
+      dashboard: 'Home Dashboard',
+      designer: 'Workflow Designer',
+      smartforms: 'Form Designer (SmartForms)',
+      instances: 'Active Instances',
+      smartobjects: 'Data Models (SmartObjects)',
+      tasks: 'Task Center',
+      analytics: 'Reports & Analytics',
+      users: 'Users & Access',
+      settings: 'System Settings',
+      collapseSidebar: 'Collapse Sidebar',
+      expandSidebar: 'Expand Sidebar',
+      engineFooter: 'Tamam Workflow Engine',
+    },
+    profile: {
+      selectLanguage: 'Select Language',
+      selectEnvironment: 'Select Environment',
+      requestedBy: 'Requested by',
+      due: 'Due',
+      noPendingNotifications: 'No pending notifications',
+      switchRuntimeMode: 'Switch Runtime Mode / Login',
+      changePassword: 'Change Password',
+      signOut: 'Sign Out',
+      currentPassword: 'Current Password',
+      newPassword: 'New Password (min 8 chars)',
+      savePassword: 'Update Password',
+      cancel: 'Cancel',
+      passwordUpdated: 'Password updated!',
+      connectedSession: 'Connected API Session',
+      demoSession: 'Local Demo Session',
+    },
   },
   fr: {
     common: {
@@ -281,6 +343,37 @@ export const translations: Record<SupportedLanguage, Translations> = {
       closeDrawer: 'Fermer l’inspecteur',
       draftAutoSaved: 'Brouillon auto-enregistré',
     },
+    nav: {
+      dashboard: 'Tableau de bord',
+      designer: 'Studio de Workflow',
+      smartforms: 'Formulaires (SmartForms)',
+      instances: 'Instances actives',
+      smartobjects: 'Modèles de données (SmartObjects)',
+      tasks: 'Centre de tâches',
+      analytics: 'Rapports & Analytique',
+      users: 'Utilisateurs & Accès',
+      settings: 'Paramètres système',
+      collapseSidebar: 'Réduire le menu',
+      expandSidebar: 'Développer le menu',
+      engineFooter: 'Moteur Tamam Workflow',
+    },
+    profile: {
+      selectLanguage: 'Choisir la langue',
+      selectEnvironment: 'Choisir l’environnement',
+      requestedBy: 'Demandé par',
+      due: 'Échéance',
+      noPendingNotifications: 'Aucune notification en attente',
+      switchRuntimeMode: 'Changer de mode / Connexion',
+      changePassword: 'Changer le mot de passe',
+      signOut: 'Se déconnecter',
+      currentPassword: 'Mot de passe actuel',
+      newPassword: 'Nouveau mot de passe (min 8 car.)',
+      savePassword: 'Mettre à jour',
+      cancel: 'Annuler',
+      passwordUpdated: 'Mot de passe mis à jour !',
+      connectedSession: 'Session API Connectée',
+      demoSession: 'Session Démo Locale',
+    },
   },
   ar: {
     common: {
@@ -381,6 +474,37 @@ export const translations: Record<SupportedLanguage, Translations> = {
       deleteNode: 'حذف هذه العقدة',
       closeDrawer: 'إغلاق لوحة الفحص',
       draftAutoSaved: 'تم الحفظ التلقائي للمسودة',
+    },
+    nav: {
+      dashboard: 'لوحة القيادة الرئيسية',
+      designer: 'مصمم مسارات العمل',
+      smartforms: 'مصمم النماذج الذكية (SmartForms)',
+      instances: 'العمليات النشطة',
+      smartobjects: 'نماذج البيانات (SmartObjects)',
+      tasks: 'مركز المهام والموافقات',
+      analytics: 'التقارير والتحليلات',
+      users: 'المستخدمون والصلاحيات',
+      settings: 'إعدادات النظام',
+      collapseSidebar: 'طي القائمة الجانبية',
+      expandSidebar: 'توسيع القائمة الجانبية',
+      engineFooter: 'محرك تمام لتدفق العمل',
+    },
+    profile: {
+      selectLanguage: 'اختر اللغة',
+      selectEnvironment: 'اختر البيئة',
+      requestedBy: 'بطلب من',
+      due: 'الاستحقاق',
+      noPendingNotifications: 'لا توجد إشعارات معلقة',
+      switchRuntimeMode: 'تبديل وضع التشغيل / تسجيل الدخول',
+      changePassword: 'تغيير كلمة المرور',
+      signOut: 'تسجيل الخروج',
+      currentPassword: 'كلمة المرور الحالية',
+      newPassword: 'كلمة المرور الجديدة (8 أحرف على الأقل)',
+      savePassword: 'تحديث كلمة المرور',
+      cancel: 'إلغاء',
+      passwordUpdated: 'تم تحديث كلمة المرور بنجاح!',
+      connectedSession: 'جلسة خادم متصلة',
+      demoSession: 'جلسة تجريبية محلية',
     },
   },
 };

@@ -12,7 +12,8 @@ public static class DiagnosticEndpoints
     public static IEndpointRouteBuilder MapDiagnosticEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/diagnostics")
-            .WithTags("Diagnostics");
+            .WithTags("Diagnostics")
+            .RequireAuthorization();
 
         group.MapGet("/failing/{instanceId}", async (string instanceId, IMessageBus bus, CancellationToken ct) =>
         {

@@ -52,13 +52,15 @@ public record StageSubWorkflowPayload(
 public record TriggerDataPayload(
     [property: JsonPropertyName("triggerType")] string TriggerType,
     [property: JsonPropertyName("eventName")] string EventName,
-    [property: JsonPropertyName("variables")] List<WorkflowVariableDto>? Variables = null
+    [property: JsonPropertyName("variables")] List<WorkflowVariableDto>? Variables = null,
+    [property: JsonPropertyName("formId")] string? FormId = null
 );
 
 public record WorkflowVariableDto(
     [property: JsonPropertyName("name")] string Name,
     [property: JsonPropertyName("type")] string Type,
-    [property: JsonPropertyName("defaultValue")] string? DefaultValue = null
+    [property: JsonPropertyName("defaultValue")] string? DefaultValue = null,
+    [property: JsonPropertyName("isSensitive")] bool IsSensitive = false
 );
 
 public record ApprovalDataPayload(
@@ -66,7 +68,9 @@ public record ApprovalDataPayload(
     [property: JsonPropertyName("assignee")] string Assignee,
     [property: JsonPropertyName("outcomes")] List<ApprovalOutcomeDto> Outcomes,
     [property: JsonPropertyName("allowReassignment")] bool? AllowReassignment = true,
-    [property: JsonPropertyName("dueDateDays")] int? DueDateDays = 2
+    [property: JsonPropertyName("dueDateDays")] int? DueDateDays = 2,
+    [property: JsonPropertyName("formId")] string? FormId = null,
+    [property: JsonPropertyName("formMode")] string? FormMode = "readonly"
 );
 
 public record ApprovalOutcomeDto(
@@ -90,7 +94,8 @@ public record EndDataPayload(
 public record DecisionDataPayload(
     [property: JsonPropertyName("conditions")] List<DecisionConditionDto> Conditions,
     [property: JsonPropertyName("trueOutcomeLabel")] string TrueOutcomeLabel,
-    [property: JsonPropertyName("falseOutcomeLabel")] string FalseOutcomeLabel
+    [property: JsonPropertyName("falseOutcomeLabel")] string FalseOutcomeLabel,
+    [property: JsonPropertyName("logicalOperator")] string? LogicalOperator = "AND"
 );
 
 public record DecisionConditionDto(
