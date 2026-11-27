@@ -31,6 +31,7 @@ import {
 import { useSmartFormStore } from '../../store/useSmartFormStore';
 import { useWorkflowStore } from '../../hooks/useWorkflowStore';
 import { SmartFormRenderer } from '../forms/SmartFormRenderer';
+import { FormRulesEditor } from '../forms/FormRulesEditor';
 import type {
   SmartFormField,
   SmartFormFieldType,
@@ -76,6 +77,9 @@ export const SmartFormsView: React.FC = () => {
     removeFieldFromActiveForm,
     moveFieldInActiveForm,
     updateActiveFormMeta,
+    addRuleToActiveForm,
+    updateRuleInActiveForm,
+    removeRuleFromActiveForm,
     submitForm
   } = useSmartFormStore();
 
@@ -103,6 +107,9 @@ export const SmartFormsView: React.FC = () => {
   const displayedFields = isViewingHistoricalVersion && inspectedVersion
     ? inspectedVersion.fields
     : (activeForm?.fields || []);
+  const displayedRules = isViewingHistoricalVersion && inspectedVersion
+    ? (inspectedVersion.rules || [])
+    : (activeForm?.rules || []);
   const selectedField = displayedFields.find((fld) => fld.id === selectedFieldId) || null;
 
   const currentVersionNumber = inspectedVersion?.versionNumber ?? activeForm?.latestVersionNumber ?? 1;
@@ -528,7 +535,7 @@ export const SmartFormsView: React.FC = () => {
                   <SmartFormRenderer
                     form={
                       isViewingHistoricalVersion
-                        ? { ...activeForm, fields: displayedFields }
+                        ? { ...activeForm, fields: displayedFields, rules: displayedRules }
                         : activeForm
                     }
                     forceReadOnly={isViewingHistoricalVersion}
@@ -634,6 +641,20 @@ export const SmartFormsView: React.FC = () => {
                                 Show if {fld.visibilityRule.field} {fld.visibilityRule.operator} {fld.visibilityRule.value}
                               </span>
                             )}
+                            {displayedRules
+                              .filter((r) => r.targetField.toLowerCase() === fld.name.toLowerCase())
+                              .map((r) => (
+                                <span
+                                  key={r.id}
+                                  className={`px-1.5 py-0.5 rounded font-semibold ${
+                                    r.effect === 'computedValue'
+                                      ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                                      : 'bg-purple-500/10 text-purple-600 dark:text-purple-400'
+                                  }`}
+                                >
+                                  {r.effect}
+                                </span>
+                              ))}
                           </div>
                         </div>
                       );
@@ -856,7 +877,20 @@ export const SmartFormsView: React.FC = () => {
                   </div>
                 )}
 
-                {/* Conditional Visibility Rule */}
+                {/* Declarative JSONLogic Rules Editor (visible / required / readOnly / computedValue) */}
+                {selectedField.type !== 'section' && activeForm && (
+                  <FormRulesEditor
+                    selectedField={selectedField}
+                    allFields={displayedFields}
+                    allRules={displayedRules}
+                    disabled={isViewingHistoricalVersion}
+                    onAddRule={addRuleToActiveForm}
+                    onUpdateRule={updateRuleInActiveForm}
+                    onRemoveRule={removeRuleFromActiveForm}
+                  />
+                )}
+
+                {/* Legacy Conditional Visibility Rule (Backward Compatible) */}
                 <div className="p-3 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60 space-y-2.5">
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] font-extrabold flex items-center gap-1.5">

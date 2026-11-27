@@ -1,15 +1,11 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
-  Plus,
-  Trash2,
-  Upload,
-  Download,
   FileText,
-  Eye,
-  ShieldCheck,
   AlertCircle,
   CheckCircle2,
-  X
+  X,
+  Calculator,
+  Save
 } from 'lucide-react';
 import type {
   SmartFormDefinition,
@@ -19,14 +15,21 @@ import type {
 } from '../../types/smartform';
 import { useWorkflowStore } from '../../hooks/useWorkflowStore';
 import { useSmartFormStore, generateIdempotencyKey } from '../../store/useSmartFormStore';
+import {
+  evaluateLegacyVisibilityRule,
+  evaluateSmartFormState
+} from '../../utils/jsonLogicEngine';
+import { FormControlRegistry } from './FormControlRegistry';
 
 interface SmartFormRendererProps {
   form: SmartFormDefinition;
   initialValues?: Record<string, unknown>;
   forceReadOnly?: boolean;
   submitLabel?: string;
+  draftLabel?: string;
   hideSubmitButton?: boolean;
   onChangeValues?: (values: Record<string, unknown>) => void;
+  onSaveDraft?: (values: Record<string, unknown>) => Promise<void> | void;
   onSubmit?: (
     values: Record<string, unknown>,
     meta?: { idempotencyKey: string }
@@ -37,34 +40,7 @@ export function evaluateFieldVisibility(
   rule: SmartFormVisibilityRule | null | undefined,
   values: Record<string, unknown>
 ): boolean {
-  if (!rule || !rule.field) return true;
-
-  const rawActual = values[rule.field];
-  const actualStr = rawActual === undefined || rawActual === null ? '' : String(rawActual);
-  const expectedStr = rule.value ?? '';
-
-  if (rule.operator === 'is_not_empty') {
-    return actualStr.trim().length > 0;
-  }
-
-  const actualNum = Number(actualStr);
-  const expectedNum = Number(expectedStr);
-  const bothNumeric = actualStr.trim() !== '' && expectedStr.trim() !== '' && !Number.isNaN(actualNum) && !Number.isNaN(expectedNum);
-
-  switch (rule.operator) {
-    case 'greater_than':
-      return bothNumeric ? actualNum > expectedNum : actualStr > expectedStr;
-    case 'less_than':
-      return bothNumeric ? actualNum < expectedNum : actualStr < expectedStr;
-    case 'equals':
-      return bothNumeric ? actualNum === expectedNum : actualStr.toLowerCase() === expectedStr.toLowerCase();
-    case 'not_equals':
-      return bothNumeric ? actualNum !== expectedNum : actualStr.toLowerCase() !== expectedStr.toLowerCase();
-    case 'contains':
-      return actualStr.toLowerCase().includes(expectedStr.toLowerCase());
-    default:
-      return true;
-  }
+  return evaluateLegacyVisibilityRule(rule, values);
 }
 
 export const SmartFormRenderer: React.FC<SmartFormRendererProps> = ({
@@ -72,8 +48,10 @@ export const SmartFormRenderer: React.FC<SmartFormRendererProps> = ({
   initialValues,
   forceReadOnly = false,
   submitLabel = 'Submit Form & Start Process',
+  draftLabel = 'Save Draft',
   hideSubmitButton = false,
   onChangeValues,
+  onSaveDraft,
   onSubmit
 }) => {
   const { smartObjectData } = useWorkflowStore();
@@ -103,8 +81,15 @@ export const SmartFormRenderer: React.FC<SmartFormRendererProps> = ({
   const [uploadingField, setUploadingField] = useState<string | null>(null);
   const [previewAttachment, setPreviewAttachment] = useState<FormAttachmentValue | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSavingDraft, setIsSavingDraft] = useState(false);
   // One Idempotency-Key per logical submission attempt: reused across retries until the server accepts it
   const idempotencyKeyRef = useRef<string>(generateIdempotencyKey());
+
+  // Isomorphic JSONLogic rule evaluation (visible, required, readOnly, computedValue in DAG order)
+  const ruleEval = useMemo(
+    () => evaluateSmartFormState(form.fields, form.rules, values),
+    [form.fields, form.rules, values]
+  );
 
   useEffect(() => {
     setValues(buildInitialMap());
@@ -124,7 +109,8 @@ export const SmartFormRenderer: React.FC<SmartFormRendererProps> = ({
         return copy;
       });
     }
-    onChangeValues?.(next);
+    const evaluatedNext = evaluateSmartFormState(form.fields, form.rules, next);
+    onChangeValues?.(evaluatedNext.effectiveValues);
   };
 
   const handleFileSelect = async (field: SmartFormField, file: File | undefined) => {
@@ -143,36 +129,61 @@ export const SmartFormRenderer: React.FC<SmartFormRendererProps> = ({
     }
   };
 
-  const handleAddRepeaterRow = (field: SmartFormField) => {
-    const currentRows = Array.isArray(values[field.name]) ? (values[field.name] as Record<string, unknown>[]) : [];
-    const emptyRow: Record<string, unknown> = {};
-    (field.repeaterColumns || []).forEach((col) => {
-      emptyRow[col.name] = '';
-    });
-    updateValue(field.name, [...currentRows, emptyRow]);
+  const handleDownloadAttachment = async (field: SmartFormField, attachment: FormAttachmentValue) => {
+    try {
+      await downloadAttachment(attachment);
+    } catch (err: unknown) {
+      setErrors((prev) => ({
+        ...prev,
+        [field.name]: err instanceof Error ? err.message : 'Attachment download failed'
+      }));
+    }
   };
 
-  const handleUpdateRepeaterCell = (field: SmartFormField, rowIdx: number, colName: string, cellVal: string) => {
-    const currentRows = Array.isArray(values[field.name]) ? (values[field.name] as Record<string, unknown>[]) : [];
-    const nextRows = currentRows.map((r, i) => (i === rowIdx ? { ...r, [colName]: cellVal } : r));
-    updateValue(field.name, nextRows);
+  const buildSanitizedVisibleValues = (): Record<string, unknown> => {
+    const sanitizedVisibleValues: Record<string, unknown> = {};
+    for (const f of form.fields) {
+      if (f.type === 'section') continue;
+      if (!ruleEval.visibleFields.has(f.name)) continue;
+      sanitizedVisibleValues[f.name] = ruleEval.effectiveValues[f.name];
+    }
+    return sanitizedVisibleValues;
   };
 
-  const handleRemoveRepeaterRow = (field: SmartFormField, rowIdx: number) => {
-    const currentRows = Array.isArray(values[field.name]) ? (values[field.name] as Record<string, unknown>[]) : [];
-    updateValue(field.name, currentRows.filter((_, i) => i !== rowIdx));
+  const handleSaveDraftClick = async () => {
+    if (!onSaveDraft || forceReadOnly) return;
+    setIsSavingDraft(true);
+    setSubmitError(null);
+    try {
+      await onSaveDraft(buildSanitizedVisibleValues());
+    } catch (err: unknown) {
+      setSubmitError(err instanceof Error ? err.message : 'Failed to save draft.');
+    } finally {
+      setIsSavingDraft(false);
+    }
   };
 
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (ruleEval.hasCycle) {
+      setSubmitError(`CYCLIC_FORM_RULE: Circular rule dependency detected (${ruleEval.cyclePath.join(' -> ')}).`);
+      return;
+    }
+
     const nextErrors: Record<string, string> = {};
 
     for (const f of form.fields) {
-      if (f.type === 'section' || !f.required || f.readOnly || forceReadOnly) continue;
-      if (!evaluateFieldVisibility(f.visibilityRule, values)) continue;
+      if (f.type === 'section' || forceReadOnly) continue;
+      if (!ruleEval.visibleFields.has(f.name)) continue;
+      if (ruleEval.readOnlyFields.has(f.name) || ruleEval.computedFields.has(f.name)) continue;
+      if (!ruleEval.requiredFields.has(f.name)) continue;
 
-      const v = values[f.name];
-      if (v === undefined || v === null || String(v).trim() === '') {
+      const v = ruleEval.effectiveValues[f.name];
+      if (f.type === 'repeater') {
+        if (!Array.isArray(v) || v.length === 0) {
+          nextErrors[f.name] = `${f.label} is required`;
+        }
+      } else if (v === undefined || v === null || (typeof v === 'string' && v.trim() === '')) {
         nextErrors[f.name] = `${f.label} is required`;
       }
     }
@@ -183,12 +194,7 @@ export const SmartFormRenderer: React.FC<SmartFormRendererProps> = ({
     }
 
     // Strip hidden phantom values so only visible declared fields are submitted
-    const sanitizedVisibleValues: Record<string, unknown> = {};
-    for (const f of form.fields) {
-      if (f.type === 'section') continue;
-      if (!evaluateFieldVisibility(f.visibilityRule, values)) continue;
-      sanitizedVisibleValues[f.name] = values[f.name];
-    }
+    const sanitizedVisibleValues = buildSanitizedVisibleValues();
 
     if (onSubmit) {
       setIsSubmitting(true);
@@ -209,20 +215,38 @@ export const SmartFormRenderer: React.FC<SmartFormRendererProps> = ({
     }
   };
 
-  const inputBase =
-    'w-full px-3.5 py-2.5 rounded-xl text-xs bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-[#0F172A] dark:text-slate-100 placeholder-[#64748B] dark:placeholder-slate-500 font-medium focus:outline-none focus:ring-2 focus:ring-[#2563EB] disabled:opacity-60 disabled:bg-slate-100 dark:disabled:bg-slate-800/70 transition-all';
-
   return (
     <form onSubmit={handleFormSubmit} className="space-y-5">
+      {ruleEval.hasCycle && (
+        <div
+          role="alert"
+          className="p-3 rounded-xl border border-rose-300 dark:border-rose-800 bg-rose-50/70 dark:bg-rose-950/30 text-xs font-semibold text-rose-700 dark:text-rose-300 flex items-center gap-2"
+        >
+          <AlertCircle className="w-4 h-4 shrink-0" />
+          <span>{`CYCLIC_FORM_RULE: Circular dependency detected (${ruleEval.cyclePath.join(' -> ')}).`}</span>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {form.fields.map((field) => {
-          const isVisible = evaluateFieldVisibility(field.visibilityRule, values);
+          const isVisible = field.type === 'section' || ruleEval.visibleFields.has(field.name);
           if (!isVisible) return null;
 
-          const isDisabled = forceReadOnly || field.readOnly;
-          const colSpanClass = field.width === 'half' && field.type !== 'section' && field.type !== 'repeater'
-            ? 'md:col-span-1'
-            : 'md:col-span-2';
+          const isComputed = ruleEval.computedFields.has(field.name);
+          const isFieldRequired = ruleEval.requiredFields.has(field.name);
+          const isFieldReadOnly = ruleEval.readOnlyFields.has(field.name);
+          const isDisabled = forceReadOnly || isFieldReadOnly || isComputed;
+          const hasRulesForField = Boolean(
+            field.visibilityRule ||
+            (form.rules && form.rules.some((r) => r.targetField.toLowerCase() === field.name.toLowerCase()))
+          );
+          const colSpanClass =
+            field.width === 'half' &&
+            field.type !== 'section' &&
+            field.type !== 'repeater' &&
+            field.type !== 'signature'
+              ? 'md:col-span-1'
+              : 'md:col-span-2';
 
           if (field.type === 'section') {
             return (
@@ -235,30 +259,8 @@ export const SmartFormRenderer: React.FC<SmartFormRendererProps> = ({
             );
           }
 
-          // Dynamic SmartObject lookup options if configured
-          let selectOptions: Array<{ value: string; label: string }> = (field.options || []).map((o) => ({
-            value: o,
-            label: o
-          }));
-          if (field.lookupSmartObjectId && smartObjectData[field.lookupSmartObjectId]) {
-            const soRows = smartObjectData[field.lookupSmartObjectId];
-            selectOptions = soRows.map((row) => {
-              const valKey = field.lookupValueField || Object.keys(row)[0] || 'id';
-              const dispKey = field.lookupDisplayField || Object.keys(row)[1] || valKey;
-              return {
-                value: String(row[valKey] ?? ''),
-                label: String(row[dispKey] ?? row[valKey] ?? '')
-              };
-            });
-          }
-
-          const currentVal = values[field.name];
-          const attachment = (field.type === 'file' && currentVal && typeof currentVal === 'object')
-            ? (currentVal as FormAttachmentValue)
-            : null;
-          const repeaterRows = field.type === 'repeater' && Array.isArray(currentVal)
-            ? (currentVal as Record<string, unknown>[])
-            : [];
+          const ControlComponent = FormControlRegistry.get(field.type);
+          const currentVal = ruleEval.effectiveValues[field.name];
 
           return (
             <div key={field.id} className={`${colSpanClass} space-y-1.5`}>
@@ -269,264 +271,41 @@ export const SmartFormRenderer: React.FC<SmartFormRendererProps> = ({
                 >
                   <span>
                     {field.label}
-                    {field.required && !isDisabled && <span className="text-rose-500 ms-1">*</span>}
+                    {isFieldRequired && !isDisabled && <span className="text-rose-500 ms-1">*</span>}
                   </span>
-                  {field.visibilityRule && (
-                    <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-600 dark:text-purple-400">
-                      Conditional
-                    </span>
-                  )}
-                </label>
-              )}
-
-              {field.type === 'text' && (
-                <input
-                  type="text"
-                  id={field.id}
-                  aria-invalid={Boolean(errors[field.name])}
-                  aria-required={field.required || undefined}
-                  aria-describedby={errors[field.name] ? `${field.id}-error` : undefined}
-                  disabled={isDisabled}
-                  value={String(currentVal ?? '')}
-                  onChange={(e) => updateValue(field.name, e.target.value)}
-                  placeholder={field.placeholder}
-                  className={inputBase}
-                />
-              )}
-
-              {field.type === 'textarea' && (
-                <textarea
-                  id={field.id}
-                  aria-invalid={Boolean(errors[field.name])}
-                  aria-required={field.required || undefined}
-                  aria-describedby={errors[field.name] ? `${field.id}-error` : undefined}
-                  rows={3}
-                  disabled={isDisabled}
-                  value={String(currentVal ?? '')}
-                  onChange={(e) => updateValue(field.name, e.target.value)}
-                  placeholder={field.placeholder}
-                  className={inputBase}
-                />
-              )}
-
-              {(field.type === 'number' || field.type === 'currency') && (
-                <div className="relative">
-                  {field.type === 'currency' && (
-                    <span className="absolute start-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">$</span>
-                  )}
-                  <input
-                    type="number"
-                    id={field.id}
-                    aria-invalid={Boolean(errors[field.name])}
-                    aria-required={field.required || undefined}
-                    aria-describedby={errors[field.name] ? `${field.id}-error` : undefined}
-                    step="any"
-                    disabled={isDisabled}
-                    value={String(currentVal ?? '')}
-                    onChange={(e) => updateValue(field.name, e.target.value)}
-                    placeholder={field.placeholder || '0'}
-                    className={`${inputBase} ${field.type === 'currency' ? 'ps-7 font-mono' : 'font-mono'}`}
-                  />
-                </div>
-              )}
-
-              {field.type === 'date' && (
-                <input
-                  type="date"
-                  id={field.id}
-                  aria-invalid={Boolean(errors[field.name])}
-                  aria-required={field.required || undefined}
-                  aria-describedby={errors[field.name] ? `${field.id}-error` : undefined}
-                  disabled={isDisabled}
-                  value={String(currentVal ?? '')}
-                  onChange={(e) => updateValue(field.name, e.target.value)}
-                  className={inputBase}
-                />
-              )}
-
-              {field.type === 'select' && (
-                <select
-                  id={field.id}
-                  aria-invalid={Boolean(errors[field.name])}
-                  aria-required={field.required || undefined}
-                  aria-describedby={errors[field.name] ? `${field.id}-error` : undefined}
-                  disabled={isDisabled}
-                  value={String(currentVal ?? '')}
-                  onChange={(e) => updateValue(field.name, e.target.value)}
-                  className={inputBase}
-                >
-                  <option value="">— Select {field.label} —</option>
-                  {selectOptions.map((opt, idx) => (
-                    <option key={`${opt.value}-${idx}`} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-              )}
-
-              {field.type === 'checkbox' && (
-                <label className="flex items-center gap-2.5 p-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    id={field.id}
-                    aria-invalid={Boolean(errors[field.name])}
-                    aria-describedby={errors[field.name] ? `${field.id}-error` : undefined}
-                    disabled={isDisabled}
-                    checked={Boolean(currentVal)}
-                    onChange={(e) => updateValue(field.name, e.target.checked)}
-                    className="w-4 h-4 rounded border-slate-300 text-[#2563EB] focus:ring-[#2563EB]"
-                  />
-                  <span className="text-xs font-bold text-[#0F172A] dark:text-slate-100">{field.label}</span>
-                </label>
-              )}
-
-              {field.type === 'repeater' && (
-                <div className="rounded-2xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 overflow-hidden">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs">
-                      <thead className="bg-slate-50 dark:bg-slate-800/80 text-[#475569] dark:text-slate-300 border-b border-slate-200 dark:border-slate-700">
-                        <tr>
-                          {(field.repeaterColumns || []).map((col) => (
-                            <th key={col.name} className="text-start px-3 py-2 font-bold">
-                              {col.label}
-                            </th>
-                          ))}
-                          {!isDisabled && <th className="w-10 px-2 py-2" />}
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                        {repeaterRows.length === 0 ? (
-                          <tr>
-                            <td
-                              colSpan={(field.repeaterColumns?.length || 1) + 1}
-                              className="px-3 py-4 text-center text-[#64748B] dark:text-slate-400"
-                            >
-                              No rows added yet.
-                            </td>
-                          </tr>
-                        ) : (
-                          repeaterRows.map((row, rowIdx) => (
-                            <tr key={rowIdx}>
-                              {(field.repeaterColumns || []).map((col) => (
-                                <td key={col.name} className="p-2">
-                                  <input
-                                    type={col.type === 'number' ? 'number' : col.type === 'date' ? 'date' : 'text'}
-                                    disabled={isDisabled}
-                                    value={String(row[col.name] ?? '')}
-                                    onChange={(e) => handleUpdateRepeaterCell(field, rowIdx, col.name, e.target.value)}
-                                    placeholder={col.label}
-                                    className="w-full px-2.5 py-1.5 rounded-lg text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700"
-                                  />
-                                </td>
-                              ))}
-                              {!isDisabled && (
-                                <td className="p-2 text-center">
-                                  <button
-                                    type="button"
-                                    onClick={() => handleRemoveRepeaterRow(field, rowIdx)}
-                                    aria-label="Remove row"
-                                    className="p-1 text-slate-400 hover:text-rose-500 cursor-pointer"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                </td>
-                              )}
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                  {!isDisabled && (
-                    <div className="p-2 bg-slate-50/70 dark:bg-slate-800/40 border-t border-slate-200 dark:border-slate-800">
-                      <button
-                        type="button"
-                        onClick={() => handleAddRepeaterRow(field)}
-                        className="px-3 py-1.5 rounded-lg text-xs font-bold text-[#2563EB] dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/50 flex items-center gap-1.5 cursor-pointer"
-                      >
-                        <Plus className="w-3.5 h-3.5" />
-                        <span>Add Line Item</span>
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {field.type === 'file' && (
-                <div className="space-y-2">
-                  {!isDisabled && !attachment && (
-                    <label className="flex flex-col items-center justify-center p-4 rounded-2xl border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-[#2563EB] bg-slate-50/60 dark:bg-slate-900/50 cursor-pointer transition-colors">
-                      <Upload className="w-5 h-5 text-[#2563EB] dark:text-blue-400 mb-1" />
-                      <span className="text-xs font-semibold text-[#0F172A] dark:text-slate-200">
-                        {uploadingField === field.name ? 'Scanning & Uploading...' : 'Click to attach PDF, PNG, JPEG, DOCX, or XLSX (max 10 MB)'}
+                  <span className="flex items-center gap-1">
+                    {isComputed && (
+                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 inline-flex items-center gap-1">
+                        <Calculator className="w-2.5 h-2.5" />
+                        Calculated
                       </span>
-                      <input
-                        type="file"
-                        id={field.id}
-                        aria-invalid={Boolean(errors[field.name])}
-                        aria-describedby={errors[field.name] ? `${field.id}-error` : undefined}
-                        accept=".pdf,.png,.jpg,.jpeg,.docx,.xlsx"
-                        className="hidden"
-                        onChange={(e) => handleFileSelect(field, e.target.files?.[0])}
-                      />
-                    </label>
-                  )}
+                    )}
+                    {!isComputed && hasRulesForField && (
+                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-600 dark:text-purple-400">
+                        Conditional
+                      </span>
+                    )}
+                  </span>
+                </label>
+              )}
 
-                  {attachment && (
-                    <div className="flex items-center justify-between p-3 rounded-xl border border-emerald-300/70 dark:border-emerald-800 bg-emerald-50/40 dark:bg-emerald-950/20">
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <FileText className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                        <div className="min-w-0">
-                          <p className="text-xs font-bold text-[#0F172A] dark:text-white truncate">{attachment.fileName}</p>
-                          <p className="text-[10px] text-[#64748B] dark:text-slate-400 flex items-center gap-1 font-mono">
-                            <ShieldCheck className="w-3 h-3 text-emerald-500" />
-                            {(attachment.sizeBytes / 1024).toFixed(1)} KB • Scanned
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        {attachment.previewDataUrl && (
-                          <button
-                            type="button"
-                            onClick={() => setPreviewAttachment(attachment)}
-                            className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[11px] font-bold text-[#2563EB] dark:text-blue-400 flex items-center gap-1 cursor-pointer"
-                          >
-                            <Eye className="w-3 h-3" />
-                            <span>Preview</span>
-                          </button>
-                        )}
-                        {(attachment.downloadUrl || attachment.previewDataUrl) && (
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              try {
-                                await downloadAttachment(attachment);
-                              } catch (err: unknown) {
-                                setErrors((prev) => ({
-                                  ...prev,
-                                  [field.name]: err instanceof Error ? err.message : 'Attachment download failed'
-                                }));
-                              }
-                            }}
-                            className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[11px] font-bold text-emerald-700 dark:text-emerald-400 flex items-center gap-1 cursor-pointer"
-                          >
-                            <Download className="w-3 h-3" />
-                            <span>Download</span>
-                          </button>
-                        )}
-                        {!isDisabled && (
-                          <button
-                            type="button"
-                            onClick={() => updateValue(field.name, null)}
-                            aria-label="Remove attachment"
-                            className="p-1 text-slate-400 hover:text-rose-500 cursor-pointer"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  )}
+              {ControlComponent ? (
+                <ControlComponent
+                  field={field}
+                  value={currentVal}
+                  error={errors[field.name]}
+                  disabled={isDisabled}
+                  required={isFieldRequired}
+                  onChange={(val) => updateValue(field.name, val)}
+                  smartObjectData={smartObjectData}
+                  uploadingField={uploadingField}
+                  onFileSelect={handleFileSelect}
+                  onDownloadAttachment={handleDownloadAttachment}
+                  onPreviewAttachment={setPreviewAttachment}
+                />
+              ) : (
+                <div className="p-2.5 rounded-xl border border-amber-300 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20 text-xs text-amber-800 dark:text-amber-300">
+                  Unsupported control type: <code className="font-mono">{field.type}</code>
                 </div>
               )}
 
@@ -560,10 +339,21 @@ export const SmartFormRenderer: React.FC<SmartFormRendererProps> = ({
       )}
 
       {!hideSubmitButton && !forceReadOnly && (
-        <div className="pt-4 border-t border-slate-200 dark:border-slate-800 flex justify-end">
+        <div className="pt-4 border-t border-slate-200 dark:border-slate-800 flex items-center justify-end gap-2.5">
+          {onSaveDraft && (
+            <button
+              type="button"
+              disabled={isSavingDraft || isSubmitting}
+              onClick={() => void handleSaveDraftClick()}
+              className="px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-[#0F172A] dark:text-slate-100 text-xs font-bold flex items-center gap-2 cursor-pointer disabled:opacity-50 transition-all"
+            >
+              <Save className="w-4 h-4 text-[#2563EB] dark:text-blue-400" />
+              <span>{isSavingDraft ? 'Saving Draft...' : draftLabel}</span>
+            </button>
+          )}
           <button
             type="submit"
-            disabled={isSubmitting}
+            disabled={isSubmitting || isSavingDraft}
             className="px-5 py-2.5 rounded-xl bg-[#2563EB] hover:bg-blue-700 text-white text-xs font-bold shadow-md flex items-center gap-2 cursor-pointer disabled:opacity-50 transition-all"
           >
             <CheckCircle2 className="w-4 h-4" />

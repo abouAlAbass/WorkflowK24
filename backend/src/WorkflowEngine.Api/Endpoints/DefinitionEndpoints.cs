@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Wolverine;
+using WorkflowEngine.Application.Common.Exceptions;
 using WorkflowEngine.Application.Features.Definitions.Commands;
 using WorkflowEngine.Application.Features.Definitions.DTOs;
 using WorkflowEngine.Application.Features.Definitions.Queries;
@@ -29,10 +30,22 @@ public static class DefinitionEndpoints
                 return Results.ValidationProblem(validationResult.ToDictionary());
             }
 
-            var result = await bus.InvokeAsync<WorkflowDefinitionCreatedResult>(command, ct);
-            return Results.Created($"/api/definitions/{result.WorkflowKey}", result);
+            try
+            {
+                var result = await bus.InvokeAsync<WorkflowDefinitionCreatedResult>(command, ct);
+                return Results.Created($"/api/definitions/{result.WorkflowKey}", result);
+            }
+            catch (WorkflowContractValidationException ex)
+            {
+                return Results.UnprocessableEntity(new
+                {
+                    code = ex.ErrorCode,
+                    message = ex.Message,
+                    errors = ex.Errors
+                });
+            }
         })
-        .RequireAuthorization("DesignerOrAdmin")
+        .RequireAuthorization("workflows.write")
         .WithName("CreateWorkflowDefinition")
         .WithSummary("Saves a workflow definition and publishes a new graph version.");
 
@@ -63,7 +76,7 @@ public static class DefinitionEndpoints
 
             return deleted ? Results.NoContent() : Results.NotFound();
         })
-        .RequireAuthorization("DesignerOrAdmin")
+        .RequireAuthorization("workflows.write")
         .WithName("DeleteWorkflowDefinition")
         .WithSummary("Deletes a workflow definition, its versions, and associated instances.");
 

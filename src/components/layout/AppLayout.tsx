@@ -22,7 +22,8 @@ import {
   LogOut,
   KeyRound,
   Server,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Store
 } from 'lucide-react';
 import { useWorkflowStore } from '../../hooks/useWorkflowStore';
 import { useSmartFormStore } from '../../store/useSmartFormStore';
@@ -87,6 +88,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
     badge?: number;
   }> = [
     { id: 'dashboard', label: t.nav.dashboard, icon: <Home className="w-4 h-4" /> },
+    { id: 'portal', label: t.nav.portal, icon: <Store className="w-4 h-4" /> },
     {
       id: 'designer',
       label: t.nav.designer,
@@ -177,14 +179,14 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="font-semibold text-sm text-[#0F172A] dark:text-white tracking-tight">
-                {t.common.appName} <span className="text-[#2563EB] dark:text-blue-400 font-bold">{t.common.studioName}</span>
+              <h1 className="text-sm ty-logo-name text-[#0F172A] dark:text-white">
+                {t.common.appName} <span className="ty-logo-studio">{t.common.studioName}</span>
               </h1>
-              <span className="text-[10px] font-mono font-medium px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-[#475569] dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+              <span className="ty-badge num-tabular rounded-full bg-slate-100 dark:bg-slate-800 text-[#475569] dark:text-slate-300 border border-slate-200 dark:border-slate-700">
                 {t.common.version}
               </span>
             </div>
-            <p className="text-[11px] text-[#475569] dark:text-slate-400 font-medium">
+            <p className="ty-logo-sub">
               {t.common.tagline}
             </p>
           </div>
@@ -523,7 +525,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
         {/* Sidebar Navigation */}
         <aside
           className={`${
-            isSidebarCollapsed ? 'w-16' : 'w-64'
+            isSidebarCollapsed ? 'w-16' : 'app-sidebar-expanded shrink-0'
           } bg-white dark:bg-[#111827] border-e border-[#E2E8F0] dark:border-[#1F2937] flex flex-col h-full z-20 select-none shadow-2xs transition-all duration-200 text-[#0F172A] dark:text-slate-100`}
         >
           {/* Nav Items List */}
@@ -534,25 +536,26 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
                 <button
                   key={item.id}
                   onClick={() => setCurrentTab(item.id)}
-                  title={isSidebarCollapsed ? item.label : undefined}
-                  className={`w-full flex items-center justify-between p-2.5 rounded-xl text-xs font-medium transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                  title={item.label}
+                  aria-current={isActive ? 'page' : undefined}
+                  className={`ty-nav w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-xl transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 ${
                     isActive
-                      ? 'bg-[#2563EB] text-white font-semibold shadow-2xs'
+                      ? 'bg-[#2563EB] text-white shadow-2xs'
                       : 'text-[#475569] dark:text-slate-300 hover:bg-[#F1F5F9] dark:hover:bg-slate-800/80 hover:text-[#0F172A] dark:hover:text-slate-100'
                   }`}
                 >
-                  <div className="flex items-center gap-3">
-                    <span className={isActive ? 'text-white' : 'text-[#475569] dark:text-slate-400'}>
+                  <div className="flex items-center gap-3 min-w-0 flex-1 text-start">
+                    <span className={`shrink-0 ${isActive ? 'text-white' : 'text-[#475569] dark:text-slate-400'}`}>
                       {item.icon}
                     </span>
                     {!isSidebarCollapsed && (
-                      <span className="truncate">{item.label}</span>
+                      <span className="min-w-0 line-clamp-2 break-words">{item.label}</span>
                     )}
                   </div>
 
                   {!isSidebarCollapsed && item.badge !== undefined && (
                     <span
-                      className={`text-[10px] font-mono font-medium px-2 py-0.5 rounded-full ${
+                      className={`ty-badge num-tabular rounded-full ${
                         isActive
                           ? 'bg-white/20 text-white'
                           : 'bg-slate-100 dark:bg-slate-800 text-[#475569] dark:text-slate-300 border border-slate-200 dark:border-slate-700'

@@ -586,6 +586,8 @@ interface WorkflowState {
   smartObjectData: Record<string, SmartObjectRecord[]>;
   users: UserRecord[];
   addUser: (user: Omit<UserRecord, 'id'>) => Promise<UserRecord>;
+  updateUser: (id: string, updates: Pick<UserRecord, 'name' | 'role' | 'group' | 'status'>) => Promise<UserRecord>;
+  resetUserPassword: (id: string, newPassword: string) => Promise<void>;
   deleteUser: (id: string) => Promise<void>;
   appMode: AppMode;
   isModeModalOpen: boolean;
@@ -1132,6 +1134,42 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         ],
         trueOutcomeLabel: 'Yes (> $5k)',
         falseOutcomeLabel: 'No (<= $5k)'
+      };
+    } else if (type === 'http') {
+      nodeData.label = 'HTTP Request';
+      nodeData.httpData = {
+        label: 'HTTP Request',
+        connectionRef: '',
+        method: 'GET',
+        path: '/v1/resource/{{vars.id}}',
+        responseMapping: {},
+        onBusinessError: {}
+      };
+    } else if (type === 'smartObject') {
+      nodeData.label = 'SmartObject Action';
+      nodeData.smartObjectData = {
+        label: 'SmartObject Action',
+        smartObjectRef: '',
+        methodName: '',
+        inputMapping: {},
+        outputMapping: {},
+        onBusinessError: {}
+      };
+    } else if (type === 'parallelSplit') {
+      nodeData.label = 'Parallel Split';
+      nodeData.splitData = {
+        label: 'Parallel Split',
+        mode: 'all',
+        itemVariable: 'item',
+        onBranchFailure: 'fail_instance'
+      };
+    } else if (type === 'parallelJoin') {
+      nodeData.label = 'Parallel Join';
+      nodeData.joinData = {
+        label: 'Parallel Join',
+        policy: 'all',
+        onRemaining: 'cancel',
+        mergeStrategy: 'error_on_conflict'
       };
     } else if (type === 'stage') {
       const timestamp = Date.now().toString().slice(-4);
@@ -2012,6 +2050,20 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       users: [...state.users, created]
     }));
     return created;
+  },
+
+  updateUser: async (id, updates) => {
+    const repo = getWorkflowRepository();
+    const updated = await repo.updateUser(id, updates);
+    set(state => ({
+      users: state.users.map(u => (u.id === id ? { ...u, ...updated } : u))
+    }));
+    return updated;
+  },
+
+  resetUserPassword: async (id, newPassword) => {
+    const repo = getWorkflowRepository();
+    await repo.resetUserPassword(id, newPassword);
   },
 
   deleteUser: async (id) => {

@@ -5,14 +5,19 @@ import type {
   SmartObjectEntity,
   SmartObjectRecord,
   UserRecord,
+  UserAuditEntry,
   AnalyticsKpiData,
   SystemSettingsData,
   ViewFlowData,
   InstanceEventsPage,
   InstanceCommandResponse,
   InstanceEventRecord,
-  ViewFlowNodeExecution
+  ViewFlowNodeExecution,
+  TaskAssignmentRecord,
+  DelegationRuleRecord,
+  CreateDelegationRulePayload
 } from '../types/workflow';
+import type { UserDirectoryItem, SmartObjectLookupPage } from '../types/smartform';
 import type {
   WorkflowRepository,
   AppMode,
@@ -609,17 +614,198 @@ export class InMemoryWorkflowRepository implements WorkflowRepository {
     });
   }
 
+  private taskAssignments: Record<string, TaskAssignmentRecord[]> = {};
+  private delegationRules: DelegationRuleRecord[] = [];
+
+  async delegateTask(taskId: string, targetAssigneeId: string, reason?: string): Promise<void> {
+    const actor = this.authSession?.user?.email || 'adel.sebti@corp.internal';
+    this.tasks = this.tasks.map((t) => {
+      if (t.id !== taskId) return t;
+      const prev = t.assigneeId || actor;
+      const entry: TaskAssignmentRecord = {
+        id: Date.now(),
+        taskId,
+        action: 'delegation',
+        fromAssigneeId: prev,
+        toAssigneeId: targetAssigneeId,
+        toAssigneeType: 'User',
+        actorUserId: actor,
+        reason: reason || null,
+        createdAt: new Date().toISOString()
+      };
+      this.taskAssignments[taskId] = [...(this.taskAssignments[taskId] || []), entry];
+      return {
+        ...t,
+        originalAssigneeId: t.originalAssigneeId || prev,
+        assigneeId: targetAssigneeId,
+        assigneeType: 'User',
+        onBehalfOfUserId: t.originalAssigneeId || prev,
+        version: (t.version ?? 1) + 1
+      };
+    });
+  }
+
+  async recallTask(taskId: string, reason?: string): Promise<void> {
+    const actor = this.authSession?.user?.email || 'adel.sebti@corp.internal';
+    this.tasks = this.tasks.map((t) => {
+      if (t.id !== taskId) return t;
+      const orig = t.originalAssigneeId || actor;
+      const entry: TaskAssignmentRecord = {
+        id: Date.now(),
+        taskId,
+        action: 'recall',
+        fromAssigneeId: t.assigneeId || null,
+        toAssigneeId: orig,
+        toAssigneeType: 'User',
+        actorUserId: actor,
+        reason: reason || null,
+        createdAt: new Date().toISOString()
+      };
+      this.taskAssignments[taskId] = [...(this.taskAssignments[taskId] || []), entry];
+      return {
+        ...t,
+        assigneeId: orig,
+        onBehalfOfUserId: null,
+        claimedByUserId: null,
+        version: (t.version ?? 1) + 1
+      };
+    });
+  }
+
+  async claimTask(taskId: string): Promise<void> {
+    const actor = this.authSession?.user?.email || 'adel.sebti@corp.internal';
+    this.tasks = this.tasks.map((t) => {
+      if (t.id !== taskId) return t;
+      const entry: TaskAssignmentRecord = {
+        id: Date.now(),
+        taskId,
+        action: 'claim',
+        fromAssigneeId: t.assigneeId || t.department,
+        toAssigneeId: actor,
+        toAssigneeType: 'User',
+        actorUserId: actor,
+        reason: 'Task claimed',
+        createdAt: new Date().toISOString()
+      };
+      this.taskAssignments[taskId] = [...(this.taskAssignments[taskId] || []), entry];
+      return {
+        ...t,
+        claimedByUserId: actor,
+        claimedAt: new Date().toISOString(),
+        version: (t.version ?? 1) + 1
+      };
+    });
+  }
+
+  async releaseTask(taskId: string, reason?: string): Promise<void> {
+    const actor = this.authSession?.user?.email || 'adel.sebti@corp.internal';
+    this.tasks = this.tasks.map((t) => {
+      if (t.id !== taskId) return t;
+      const entry: TaskAssignmentRecord = {
+        id: Date.now(),
+        taskId,
+        action: 'release',
+        fromAssigneeId: t.claimedByUserId || actor,
+        toAssigneeId: t.assigneeId || t.department,
+        toAssigneeType: t.assigneeType || 'Group',
+        actorUserId: actor,
+        reason: reason || 'Task released',
+        createdAt: new Date().toISOString()
+      };
+      this.taskAssignments[taskId] = [...(this.taskAssignments[taskId] || []), entry];
+      return {
+        ...t,
+        claimedByUserId: null,
+        claimedAt: null,
+        version: (t.version ?? 1) + 1
+      };
+    });
+  }
+
+  async getTaskAssignments(taskId: string): Promise<TaskAssignmentRecord[]> {
+    return [...(this.taskAssignments[taskId] || [])];
+  }
+
+  async getDelegationRules(): Promise<DelegationRuleRecord[]> {
+    return [...this.delegationRules];
+  }
+
+  async createDelegationRule(payload: CreateDelegationRulePayload): Promise<DelegationRuleRecord> {
+    const delegator = this.authSession?.user?.email || 'adel.sebti@corp.internal';
+    if (delegator.toLowerCase() === payload.delegateId.trim().toLowerCase()) {
+      throw new Error('DELEGATION_CYCLE_DETECTED: Self-delegation creates a cycle.');
+    }
+    const created: DelegationRuleRecord = {
+      id: `del-${Date.now()}`,
+      delegatorId: delegator,
+      delegateId: payload.delegateId.trim(),
+      scope: payload.scope?.trim() || '*',
+      validFrom: payload.validFrom,
+      validTo: payload.validTo,
+      active: true,
+      reason: payload.reason || null,
+      createdBy: delegator,
+      createdAt: new Date().toISOString()
+    };
+    this.delegationRules = [created, ...this.delegationRules];
+    return created;
+  }
+
+  async deleteDelegationRule(id: string): Promise<void> {
+    this.delegationRules = this.delegationRules.filter((r) => r.id !== id);
+  }
+
   async getUsers(): Promise<UserRecord[]> {
     return [...this.users];
   }
 
+  async searchUsers(query = '', limit = 20): Promise<UserDirectoryItem[]> {
+    const q = query.trim().toLowerCase();
+    const filtered = this.users
+      .filter((u) => u.status === 'Active')
+      .filter((u) =>
+        !q ||
+        u.name.toLowerCase().includes(q) ||
+        u.email.toLowerCase().includes(q) ||
+        u.group.toLowerCase().includes(q)
+      )
+      .slice(0, Math.max(1, Math.min(50, limit)));
+
+    return filtered.map((u) => ({
+      id: u.id,
+      displayName: u.name,
+      email: u.email,
+      department: u.group
+    }));
+  }
+
   async createUser(user: Omit<UserRecord, 'id'>): Promise<UserRecord> {
+    const { password: _password, ...safeUser } = user;
     const newUser: UserRecord = {
-      ...user,
+      ...safeUser,
       id: `usr-${Date.now()}`
     };
     this.users.push(newUser);
     return newUser;
+  }
+
+  async updateUser(
+    id: string,
+    updates: Pick<UserRecord, 'name' | 'role' | 'group' | 'status'> & { avatarUrl?: string }
+  ): Promise<UserRecord> {
+    const existing = this.users.find(u => u.id === id);
+    if (!existing) throw new Error('User not found.');
+    const updated: UserRecord = { ...existing, ...updates, avatarUrl: updates.avatarUrl ?? existing.avatarUrl };
+    this.users = this.users.map(u => (u.id === id ? updated : u));
+    return updated;
+  }
+
+  async resetUserPassword(_id: string, _newPassword: string): Promise<void> {
+    // Demo mode has no credentials to reset.
+  }
+
+  async getUserAuditLog(): Promise<UserAuditEntry[]> {
+    return [];
   }
 
   async deleteUser(id: string): Promise<void> {
@@ -667,6 +853,37 @@ export class InMemoryWorkflowRepository implements WorkflowRepository {
 
   async getSmartObjectRecords(smartObjectId: string): Promise<SmartObjectRecord[]> {
     return [...(this.smartObjectData[smartObjectId] || [])];
+  }
+
+  async lookupSmartObject(
+    smartObjectId: string,
+    query = '',
+    page = 1,
+    pageSize = 25
+  ): Promise<SmartObjectLookupPage> {
+    const allRows = this.smartObjectData[smartObjectId] || [];
+    const q = query.trim().toLowerCase();
+    const filtered = !q
+      ? allRows
+      : allRows.filter((row) =>
+          Object.values(row).some((v) => String(v ?? '').toLowerCase().includes(q))
+        );
+
+    const safePage = Math.max(1, page);
+    const safePageSize = Math.max(1, Math.min(100, pageSize));
+    const totalCount = filtered.length;
+    const totalPages = totalCount === 0 ? 0 : Math.ceil(totalCount / safePageSize);
+    const start = (safePage - 1) * safePageSize;
+    const items = filtered.slice(start, start + safePageSize);
+
+    return {
+      items,
+      page: safePage,
+      pageSize: safePageSize,
+      totalCount,
+      totalPages,
+      hasMore: safePage < totalPages
+    };
   }
 
   async addSmartObjectRecord(smartObjectId: string, record: SmartObjectRecord): Promise<SmartObjectRecord> {
@@ -744,6 +961,395 @@ export class InMemoryWorkflowRepository implements WorkflowRepository {
   async saveSettings(settings: Partial<SystemSettingsData>): Promise<SystemSettingsData> {
     this.settings = { ...this.settings, ...settings };
     return { ...this.settings };
+  }
+
+  private connections: import('../types/workflow').ConnectionRecord[] = [
+    {
+      id: 'conn-erp-demo',
+      name: 'ERP_REST_API',
+      baseUrl: 'https://api.erp.example.com',
+      authType: 'bearer',
+      secretRef: 'env:ERP_API_TOKEN',
+      hasSecretRef: true,
+      allowedHosts: ['api.erp.example.com'],
+      defaultHeaders: { Accept: 'application/json' },
+      version: 1,
+      createdBy: 'admin@corp.internal',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    }
+  ];
+
+  async getConnections(): Promise<import('../types/workflow').ConnectionRecord[]> {
+    return [...this.connections];
+  }
+
+  async createConnection(payload: import('../types/workflow').CreateConnectionPayload): Promise<import('../types/workflow').ConnectionRecord> {
+    const now = new Date().toISOString();
+    const record: import('../types/workflow').ConnectionRecord = {
+      id: payload.id || `conn-${Date.now().toString(36)}`,
+      name: payload.name.trim(),
+      baseUrl: payload.baseUrl.trim(),
+      authType: payload.authType,
+      secretRef: payload.secretRef?.trim() || null,
+      hasSecretRef: Boolean(payload.secretRef && payload.secretRef.trim().length > 0),
+      allowedHosts: payload.allowedHosts || [],
+      defaultHeaders: payload.defaultHeaders || {},
+      version: 1,
+      createdBy: this.authSession?.user?.email || 'demo@corp.internal',
+      createdAt: now,
+      updatedAt: now,
+      serviceType: payload.serviceType || 'rest',
+      authMode: payload.authMode || 'static',
+      secretSource: payload.secretSource || 'internal_encrypted',
+      hasEncryptedCredentials: Boolean(payload.credentialsJson && payload.credentialsJson.trim().length > 0),
+      externalSecretKey: payload.externalSecretKey || null,
+      allowWrite: payload.allowWrite ?? false,
+      maxRows: payload.maxRows ?? 200
+    };
+    this.connections = [record, ...this.connections];
+    return record;
+  }
+
+  async deleteConnection(id: string): Promise<void> {
+    this.connections = this.connections.filter(c => c.id !== id);
+  }
+
+  private connectionPermissions: import('../types/workflow').ConnectionPermissionRecord[] = [];
+  private myCredentials: Record<string, { updatedAt: string }> = {};
+  private connectionEnvironments: import('../types/workflow').ConnectionEnvironmentConfigRecord[] = [];
+  private connectionUsageLogs: import('../types/workflow').ConnectionUsageLogRecord[] = [];
+
+  async testConnection(id: string): Promise<import('../types/workflow').ConnectionTestResult> {
+    const now = new Date().toISOString();
+    this.connections = this.connections.map((c) =>
+      c.id === id ? { ...c, healthStatus: 'Healthy', lastTestedAt: now, lastErrorSanitized: null } : c
+    );
+    return { success: true, latencyMs: 14 };
+  }
+
+  async rotateConnectionSecret(
+    id: string,
+    payload: import('../types/workflow').RotateConnectionSecretPayload
+  ): Promise<import('../types/workflow').ConnectionRecord> {
+    const now = new Date().toISOString();
+    let updated: import('../types/workflow').ConnectionRecord | undefined;
+    this.connections = this.connections.map((c) => {
+      if (c.id !== id) return c;
+      updated = {
+        ...c,
+        hasEncryptedCredentials: Boolean(payload.credentialsJson) || c.hasEncryptedCredentials,
+        externalSecretKey: payload.externalSecretKey ?? c.externalSecretKey,
+        lastRotatedAt: now,
+        secretExpiresAt: payload.secretExpiresAt ?? c.secretExpiresAt,
+        version: c.version + 1,
+        updatedAt: now
+      };
+      return updated;
+    });
+    if (!updated) throw new Error(`Connection '${id}' not found.`);
+    return updated;
+  }
+
+  async getConnectionUsage(
+    id: string,
+    limit = 50
+  ): Promise<import('../types/workflow').ConnectionUsageResponse> {
+    const conn = this.connections.find((c) => c.id === id);
+    return {
+      connectionId: id,
+      connectionName: conn?.name || id,
+      healthStatus: conn?.healthStatus || 'Unknown',
+      lastTestedAt: conn?.lastTestedAt ?? null,
+      lastUsedAt: conn?.lastUsedAt ?? null,
+      lastRotatedAt: conn?.lastRotatedAt ?? null,
+      secretExpiresAt: conn?.secretExpiresAt ?? null,
+      lastErrorSanitized: conn?.lastErrorSanitized ?? null,
+      logs: this.connectionUsageLogs.filter((l) => l.connectionId === id).slice(0, limit)
+    };
+  }
+
+  async getConnectionEnvironments(
+    id: string
+  ): Promise<import('../types/workflow').ConnectionEnvironmentConfigRecord[]> {
+    return this.connectionEnvironments.filter((e) => e.connectionId === id);
+  }
+
+  async upsertConnectionEnvironment(
+    id: string,
+    payload: import('../types/workflow').UpsertConnectionEnvironmentConfigPayload
+  ): Promise<import('../types/workflow').ConnectionEnvironmentConfigRecord> {
+    const now = new Date().toISOString();
+    const existing = this.connectionEnvironments.find(
+      (e) => e.connectionId === id && e.environmentName === payload.environmentName
+    );
+    if (existing) {
+      existing.baseUrlOverride = payload.baseUrlOverride ?? null;
+      if (payload.clearCredentialsOverride) {
+        existing.hasEncryptedCredentialsOverride = false;
+      } else if (payload.credentialsJsonOverride) {
+        existing.hasEncryptedCredentialsOverride = true;
+      }
+      if (payload.externalSecretKeyOverride !== undefined) {
+        existing.externalSecretKeyOverride = payload.externalSecretKeyOverride;
+      }
+      existing.updatedAt = now;
+      return { ...existing };
+    }
+    const created: import('../types/workflow').ConnectionEnvironmentConfigRecord = {
+      id: `cenv-${Date.now().toString(36)}`,
+      connectionId: id,
+      environmentName: payload.environmentName,
+      baseUrlOverride: payload.baseUrlOverride ?? null,
+      hasEncryptedCredentialsOverride: Boolean(payload.credentialsJsonOverride),
+      externalSecretKeyOverride: payload.externalSecretKeyOverride ?? null,
+      updatedAt: now
+    };
+    this.connectionEnvironments = [...this.connectionEnvironments, created];
+    return created;
+  }
+
+  async getConnectionPermissions(connectionId: string): Promise<import('../types/workflow').ConnectionPermissionRecord[]> {
+    return this.connectionPermissions.filter(p => p.connectionId === connectionId);
+  }
+
+  async upsertConnectionPermission(
+    connectionId: string,
+    payload: import('../types/workflow').UpsertConnectionPermissionPayload
+  ): Promise<import('../types/workflow').ConnectionPermissionRecord> {
+    const now = new Date().toISOString();
+    const existing = this.connectionPermissions.find(
+      p => p.connectionId === connectionId && p.subjectType === payload.subjectType && p.subjectId.toLowerCase() === payload.subjectId.toLowerCase()
+    );
+    if (existing) {
+      existing.canManage = payload.canManage;
+      existing.canUse = payload.canUse || payload.canManage;
+      existing.updatedAt = now;
+      return { ...existing };
+    }
+    const created: import('../types/workflow').ConnectionPermissionRecord = {
+      id: `cperm-${Date.now().toString(36)}`,
+      connectionId,
+      subjectType: payload.subjectType,
+      subjectId: payload.subjectId,
+      canUse: payload.canUse || payload.canManage,
+      canManage: payload.canManage,
+      createdAt: now,
+      updatedAt: now
+    };
+    this.connectionPermissions = [...this.connectionPermissions, created];
+    return created;
+  }
+
+  async deleteConnectionPermission(connectionId: string, permissionId: string): Promise<void> {
+    this.connectionPermissions = this.connectionPermissions.filter(
+      p => !(p.connectionId === connectionId && p.id === permissionId)
+    );
+  }
+
+  async getMyConnectionCredentials(): Promise<import('../types/workflow').UserConnectionCredentialRecord[]> {
+    return this.connections
+      .filter(c => c.authMode === 'user_sso_vault')
+      .map(c => ({
+        connectionId: c.id,
+        connectionName: c.name,
+        serviceType: c.serviceType || 'rest',
+        authMode: c.authMode || 'user_sso_vault',
+        hasCredentials: Boolean(this.myCredentials[c.id]),
+        updatedAt: this.myCredentials[c.id]?.updatedAt ?? null
+      }));
+  }
+
+  async upsertMyConnectionCredential(
+    connectionId: string,
+    _secretJson: string
+  ): Promise<import('../types/workflow').UserConnectionCredentialRecord> {
+    const now = new Date().toISOString();
+    this.myCredentials[connectionId] = { updatedAt: now };
+    const conn = this.connections.find(c => c.id === connectionId);
+    return {
+      connectionId,
+      connectionName: conn?.name || connectionId,
+      serviceType: conn?.serviceType || 'rest',
+      authMode: conn?.authMode || 'user_sso_vault',
+      hasCredentials: true,
+      updatedAt: now
+    };
+  }
+
+  async deleteMyConnectionCredential(connectionId: string): Promise<void> {
+    delete this.myCredentials[connectionId];
+  }
+
+  async discoverConnectionEntities(
+    _connectionId: string
+  ): Promise<import('../types/workflow').DiscoveredEntity[]> {
+    return [
+      {
+        entityName: 'employees',
+        displayName: 'Employees',
+        detectedPrimaryKey: 'id',
+        schemaName: 'public',
+        entityType: 'Table',
+        fields: [
+          { name: 'id', sourceType: 'int', mappedSmartObjectType: 'number', isNullable: false, isPrimaryKey: true, suggestedMasked: false },
+          { name: 'full_name', sourceType: 'varchar', mappedSmartObjectType: 'string', isNullable: false, isPrimaryKey: false, suggestedMasked: false },
+          { name: 'salary', sourceType: 'numeric', mappedSmartObjectType: 'number', isNullable: true, isPrimaryKey: false, suggestedMasked: true },
+          { name: 'iban', sourceType: 'varchar', mappedSmartObjectType: 'string', isNullable: true, isPrimaryKey: false, suggestedMasked: true },
+          { name: 'is_active', sourceType: 'boolean', mappedSmartObjectType: 'boolean', isNullable: false, isPrimaryKey: false, suggestedMasked: false }
+        ]
+      }
+    ];
+  }
+
+  async generateSmartObjectFromConnection(
+    connectionId: string,
+    payload: import('../types/workflow').GenerateSmartObjectFromConnectionPayload
+  ): Promise<SmartObjectEntity> {
+    const conn = this.connections.find(c => c.id === connectionId);
+    const hasPk = Boolean(payload.primaryKeyField && payload.primaryKeyField.trim());
+    const allowWrite = Boolean(conn?.allowWrite);
+    const methods: import('../types/workflow').SmartObjectMethodContract[] = [
+      { name: 'Get', kind: 'read', idempotent: true },
+      { name: 'List', kind: 'read', idempotent: true }
+    ];
+    if (allowWrite) {
+      methods.push({ name: 'Create', kind: 'create', idempotent: false });
+      if (hasPk) {
+        methods.push({ name: 'Update', kind: 'update', idempotent: true });
+        methods.push({ name: 'Delete', kind: 'delete', idempotent: true });
+      }
+    }
+    const entity: SmartObjectEntity = {
+      id: `so-${Date.now().toString(36)}`,
+      name: payload.smartObjectKey,
+      displayName: payload.displayName || payload.smartObjectKey,
+      description: payload.description || `Imported from ${payload.entityName}`,
+      category: payload.category || 'Custom',
+      recordsCount: 0,
+      version: 1,
+      status: payload.publishImmediately ? 'Published' : 'Draft',
+      sourceConnectionId: connectionId,
+      sourceEntityName: payload.entityName,
+      primaryKeyField: payload.primaryKeyField || null,
+      methods,
+      fields: payload.selectedFields.map(f => ({
+        name: f.name,
+        displayName: f.displayName || f.name,
+        type: f.type,
+        isPrimaryKey: Boolean(payload.primaryKeyField && f.name.toLowerCase() === payload.primaryKeyField.toLowerCase()),
+        isRequired: Boolean(f.isRequired),
+        masked: f.masked
+      }))
+    };
+    this.smartObjects.push(entity);
+    this.smartObjectData[entity.id] = [];
+    return entity;
+  }
+
+  async syncSmartObjectSchema(
+    smartObjectId: string,
+    apply = false
+  ): Promise<import('../types/workflow').SchemaDiffResult> {
+    const so = this.smartObjects.find(s => s.id === smartObjectId);
+    if (!so || !so.sourceConnectionId || !so.sourceEntityName) {
+      throw new Error(`SmartObject '${smartObjectId}' is not linked to a Connection.`);
+    }
+    return {
+      smartObjectId: so.id,
+      connectionId: so.sourceConnectionId,
+      entityName: so.sourceEntityName,
+      addedFields: [],
+      removedFields: [],
+      typeChangedFields: [],
+      primaryKeyChanged: false,
+      previousPrimaryKey: so.primaryKeyField ?? null,
+      newPrimaryKey: so.primaryKeyField ?? null,
+      hasChanges: false,
+      applied: apply
+    };
+  }
+
+  private authProviders: import('../types/workflow').AuthProviderRecord[] = [];
+
+  async getPublicAuthProviders(): Promise<import('../types/workflow').PublicAuthProvidersResponse> {
+    return {
+      localLoginEnabled: true,
+      providers: this.authProviders
+        .filter(p => p.isEnabled)
+        .map(p => ({ id: p.id, name: p.name, protocol: p.protocol }))
+    };
+  }
+
+  getExternalChallengeUrl(providerId: string): string {
+    return `/api/auth/external/${encodeURIComponent(providerId)}/challenge`;
+  }
+
+  async exchangeExternalAuthCode(_exchangeCode: string): Promise<AuthSession> {
+    throw new Error('External OIDC login requires Connected Mode (live backend API).');
+  }
+
+  async getAdminAuthProviders(): Promise<import('../types/workflow').AuthProviderRecord[]> {
+    return [...this.authProviders];
+  }
+
+  async createAuthProvider(
+    payload: import('../types/workflow').UpsertAuthProviderPayload
+  ): Promise<import('../types/workflow').AuthProviderRecord> {
+    const now = new Date().toISOString();
+    const record: import('../types/workflow').AuthProviderRecord = {
+      id: `authp-${Date.now().toString(36)}`,
+      name: payload.name.trim(),
+      protocol: payload.protocol || 'oidc',
+      authority: payload.authority.trim(),
+      clientId: payload.clientId.trim(),
+      hasSecret: Boolean(payload.clientSecret && payload.clientSecret.trim().length > 0),
+      scopes: payload.scopes?.trim() || 'openid profile email',
+      roleMappingJson: payload.roleMappingJson?.trim() || '{}',
+      jitProvisioningEnabled: payload.jitProvisioningEnabled ?? true,
+      allowEmailMatching: payload.allowEmailMatching ?? false,
+      allowAdminRoleMapping: payload.allowAdminRoleMapping ?? false,
+      defaultRole: payload.defaultRole?.trim() || 'User',
+      isEnabled: payload.isEnabled ?? true,
+      version: 1,
+      createdAt: now,
+      updatedAt: now
+    };
+    this.authProviders = [record, ...this.authProviders];
+    return record;
+  }
+
+  async updateAuthProvider(
+    id: string,
+    payload: import('../types/workflow').UpsertAuthProviderPayload
+  ): Promise<import('../types/workflow').AuthProviderRecord> {
+    const idx = this.authProviders.findIndex(p => p.id === id);
+    if (idx === -1) throw new Error(`Auth provider '${id}' not found.`);
+    const current = this.authProviders[idx];
+    const updated: import('../types/workflow').AuthProviderRecord = {
+      ...current,
+      name: payload.name.trim(),
+      authority: payload.authority.trim(),
+      clientId: payload.clientId.trim(),
+      hasSecret: payload.clearClientSecret
+        ? false
+        : (payload.clientSecret ? true : current.hasSecret),
+      scopes: payload.scopes?.trim() || current.scopes,
+      roleMappingJson: payload.roleMappingJson?.trim() || '{}',
+      jitProvisioningEnabled: payload.jitProvisioningEnabled ?? current.jitProvisioningEnabled,
+      allowEmailMatching: payload.allowEmailMatching ?? current.allowEmailMatching,
+      allowAdminRoleMapping: payload.allowAdminRoleMapping ?? current.allowAdminRoleMapping,
+      defaultRole: payload.defaultRole?.trim() || current.defaultRole,
+      isEnabled: payload.isEnabled ?? current.isEnabled,
+      version: current.version + 1,
+      updatedAt: new Date().toISOString()
+    };
+    this.authProviders[idx] = updated;
+    return updated;
+  }
+
+  async deleteAuthProvider(id: string): Promise<void> {
+    this.authProviders = this.authProviders.filter(p => p.id !== id);
   }
 }
 

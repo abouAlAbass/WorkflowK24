@@ -25,6 +25,8 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>, IAsyncL
             "Database:ConnectionString",
             $"Server=(localdb)\\mssqllocaldb;Database={_testDbName};Trusted_Connection=True;MultipleActiveResultSets=true");
         builder.UseSetting("RateLimiting:AuthPermitLimit", "500");
+        // Existing suites authenticate as adel.sebti; make it the principal admin in the test host.
+        builder.UseSetting("Seed:PrimaryAdmin:Email", "adel.sebti@corp.internal");
 
         builder.ConfigureLogging(logging =>
         {
@@ -286,7 +288,8 @@ public class WorkflowApiEndpointsTests : IClassFixture<TestWebApplicationFactory
             email = $"delete.me.{Guid.NewGuid():N}@enterprise.internal",
             role = "End User",
             group = "Operations",
-            status = "Active"
+            status = "Active",
+            password = "SecurePassword123!"
         };
         var createRes = await client.PostAsJsonAsync("/api/users", newUser);
         createRes.StatusCode.Should().Be(HttpStatusCode.Created);

@@ -30,7 +30,26 @@ public class SmartObjectRepository : ISmartObjectRepository
     public async Task<SmartObjectEntity?> GetByNameAsync(string name, CancellationToken ct = default)
     {
         return await _context.SmartObjects
-            .FirstOrDefaultAsync(s => s.Name == name, ct);
+            .Where(s => s.Name == name)
+            .OrderByDescending(s => s.Status == Domain.Enums.SmartObjectStatus.Published)
+            .ThenByDescending(s => s.Version)
+            .FirstOrDefaultAsync(ct);
+    }
+
+    public async Task<SmartObjectEntity?> GetByNameAndVersionAsync(string name, int version, CancellationToken ct = default)
+    {
+        return await _context.SmartObjects
+            .FirstOrDefaultAsync(s => s.Name == name && s.Version == version, ct);
+    }
+
+    public async Task<int> GetLatestVersionNumberAsync(string name, CancellationToken ct = default)
+    {
+        var max = await _context.SmartObjects
+            .Where(s => s.Name == name)
+            .Select(s => (int?)s.Version)
+            .MaxAsync(ct);
+
+        return max ?? 0;
     }
 
     public async Task<SmartObjectEntity> AddAsync(SmartObjectEntity entity, CancellationToken ct = default)
@@ -70,6 +89,39 @@ public class SmartObjectRepository : ISmartObjectRepository
             .Where(r => r.SmartObjectId == smartObjectId)
             .OrderByDescending(r => r.CreatedAt)
             .ToListAsync(ct);
+    }
+
+    public async Task<(IReadOnlyList<SmartObjectRecordEntity> Items, int TotalCount)> SearchRecordsAsync(
+        string smartObjectId,
+        string? query,
+        int page,
+        int pageSize,
+        CancellationToken ct = default)
+    {
+        int safePage = Math.Max(1, page);
+        int safePageSize = Math.Clamp(pageSize, 1, 100);
+
+        IQueryable<SmartObjectRecordEntity> dbQuery = _context.SmartObjectRecords
+            .AsNoTracking()
+            .Where(r => r.SmartObjectId == smartObjectId);
+
+        if (!string.IsNullOrWhiteSpace(query))
+        {
+            string normalized = query.Trim().ToLowerInvariant();
+            dbQuery = dbQuery.Where(r =>
+                r.DataJson.ToLower().Contains(normalized) ||
+                r.RecordKey.ToLower().Contains(normalized));
+        }
+
+        int totalCount = await dbQuery.CountAsync(ct);
+        var items = await dbQuery
+            .OrderByDescending(r => r.CreatedAt)
+            .ThenBy(r => r.Id)
+            .Skip((safePage - 1) * safePageSize)
+            .Take(safePageSize)
+            .ToListAsync(ct);
+
+        return (items, totalCount);
     }
 
     public async Task<SmartObjectRecordEntity?> GetRecordByKeyAsync(string smartObjectId, string recordKey, CancellationToken ct = default)

@@ -11,7 +11,9 @@ import {
   Clock,
   Activity,
   ShieldAlert,
-  Layers
+  Layers,
+  GitFork,
+  GitMerge
 } from 'lucide-react';
 import { getWorkflowRepository } from '../../services/repositoryManager';
 import type { ViewFlowData, ViewFlowNodeExecution } from '../../types/workflow';
@@ -20,6 +22,7 @@ interface InstanceViewFlowPanelProps {
   instanceId: string;
   onClose: () => void;
   onStatusChanged?: () => void;
+  readOnly?: boolean;
 }
 
 const MIN_CANCEL_REASON_LENGTH = 10;
@@ -51,7 +54,8 @@ function formatApiError(err: unknown): string {
 export const InstanceViewFlowPanel: React.FC<InstanceViewFlowPanelProps> = ({
   instanceId,
   onClose,
-  onStatusChanged
+  onStatusChanged,
+  readOnly = false
 }) => {
   const [flow, setFlow] = useState<ViewFlowData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -83,11 +87,11 @@ export const InstanceViewFlowPanel: React.FC<InstanceViewFlowPanelProps> = ({
   }, [loadFlow]);
 
   const normalizedStatus = (flow?.instance.status || '').toUpperCase();
-  const canSuspend = normalizedStatus === 'RUNNING' || normalizedStatus === 'WAITING' || normalizedStatus === 'PENDING';
-  const canResume = normalizedStatus === 'SUSPENDED';
-  const canRetry = normalizedStatus === 'FAULTED' || normalizedStatus === 'FAILED';
+  const canSuspend = !readOnly && (normalizedStatus === 'RUNNING' || normalizedStatus === 'WAITING' || normalizedStatus === 'PENDING');
+  const canResume = !readOnly && normalizedStatus === 'SUSPENDED';
+  const canRetry = !readOnly && (normalizedStatus === 'FAULTED' || normalizedStatus === 'FAILED');
   const isTerminal = normalizedStatus === 'COMPLETED' || normalizedStatus === 'CANCELLED';
-  const canCancel = Boolean(flow) && !isTerminal;
+  const canCancel = !readOnly && Boolean(flow) && !isTerminal;
 
   const trimmedCancelReason = cancelReason.trim();
   const isCancelReasonValid = trimmedCancelReason.length >= MIN_CANCEL_REASON_LENGTH;
@@ -421,6 +425,83 @@ export const InstanceViewFlowPanel: React.FC<InstanceViewFlowPanelProps> = ({
                     )}
                   </div>
                 ))}
+              </div>
+            )}
+
+            {/* Parallel Branches & Join Barriers */}
+            {((flow.tokens && flow.tokens.length > 0) || (flow.joinStates && flow.joinStates.length > 0)) && (
+              <div className="pt-2 space-y-3" data-testid="viewflow-parallel-section">
+                {flow.joinStates && flow.joinStates.length > 0 && (
+                  <div className="space-y-2">
+                    <h4 className="text-xs font-extrabold uppercase tracking-wider text-[#64748B] dark:text-slate-400 flex items-center gap-1.5">
+                      <GitMerge className="w-3.5 h-3.5 text-[#0F766E] dark:text-teal-400" />
+                      <span>Join Synchronization ({flow.joinStates.length})</span>
+                    </h4>
+                    <div className="space-y-2">
+                      {flow.joinStates.map((join) => {
+                        const pct = join.expectedCount > 0
+                          ? Math.min(100, Math.round((join.arrivedCount / join.expectedCount) * 100))
+                          : 100;
+                        return (
+                          <div
+                            key={join.id}
+                            className="p-3 rounded-2xl bg-[#F8FAFC] dark:bg-slate-800/60 border border-[#E2E8F0] dark:border-slate-700 space-y-2"
+                          >
+                            <div className="flex items-center justify-between gap-2 text-xs">
+                              <span className="font-mono font-bold text-[#0F172A] dark:text-white">
+                                {join.splitNodeId} → {join.joinNodeId}
+                              </span>
+                              <span
+                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                                  join.joinFired
+                                    ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800'
+                                    : 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800'
+                                }`}
+                              >
+                                {join.joinFired ? 'Fired' : 'Waiting'} ({join.arrivedCount}/{join.expectedCount})
+                              </span>
+                            </div>
+                            <div className="w-full h-1.5 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
+                              <div
+                                className={`h-full rounded-full transition-all ${
+                                  join.joinFired ? 'bg-emerald-500' : 'bg-sky-500'
+                                }`}
+                                style={{ width: `${pct}%` }}
+                              />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {flow.tokens && flow.tokens.length > 0 && (
+                  <div className="space-y-2">
+                    <h4 className="text-xs font-extrabold uppercase tracking-wider text-[#64748B] dark:text-slate-400 flex items-center gap-1.5">
+                      <GitFork className="w-3.5 h-3.5 text-[#0284C7] dark:text-sky-400" />
+                      <span>Parallel Branch Tokens ({flow.tokens.length})</span>
+                    </h4>
+                    <div className="space-y-1.5">
+                      {flow.tokens.map((tok) => (
+                        <div
+                          key={tok.id}
+                          className="p-2.5 rounded-xl bg-[#F8FAFC] dark:bg-slate-800/60 border border-[#E2E8F0] dark:border-slate-700 flex items-center justify-between gap-2 text-xs"
+                        >
+                          <div className="min-w-0">
+                            <span className="font-mono font-bold text-[#0F172A] dark:text-white">
+                              {tok.branchId || tok.id}
+                            </span>
+                            <span className="ms-2 font-mono text-[11px] text-[#64748B] dark:text-slate-400">
+                              @ {tok.nodeId}
+                            </span>
+                          </div>
+                          {renderNodeStatusBadge(tok.status)}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 

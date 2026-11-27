@@ -7,7 +7,9 @@ using Scalar.AspNetCore;
 using Wolverine;
 using WorkflowEngine.Api.Auth;
 using WorkflowEngine.Api.Endpoints;
+using WorkflowEngine.Api.Services;
 using WorkflowEngine.Application;
+using WorkflowEngine.Application.Features.Connections.Handlers;
 using WorkflowEngine.Application.Features.Definitions.Handlers;
 using WorkflowEngine.Application.Features.Diagnostics.Handlers;
 using WorkflowEngine.Application.Features.Instances.Handlers;
@@ -30,14 +32,25 @@ builder.Host.UseWolverine(opts =>
     opts.Discovery.IncludeType<WorkflowTaskHandlers>();
     opts.Discovery.IncludeType<WorkflowDiagnosticHandlers>();
     opts.Discovery.IncludeType<SmartFormHandler>();
+    opts.Discovery.IncludeType<ConnectionHandlers>();
 });
 
 // 2. Clean Architecture Layer Registrations
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
+builder.Services.AddHostedService<TaskEscalationBackgroundService>();
 
 // 3. Authentication & JWT Bearer (Fail-Fast Secret Validation)
+builder.Services.AddMemoryCache();
+builder.Services.AddHttpClient(OidcHttpClientNames.OidcProvider)
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+    {
+        AllowAutoRedirect = false
+    });
 builder.Services.AddSingleton<IJwtTokenService, JwtTokenService>();
+builder.Services.AddSingleton<IOidcDiscoveryCache, OidcDiscoveryCache>();
+builder.Services.AddSingleton<IOidcFlowStateStore, OidcFlowStateStore>();
+builder.Services.AddScoped<IOidcAuthenticationService, OidcAuthenticationService>();
 
 var secretKey = builder.Configuration["Jwt:SecretKey"];
 if (string.IsNullOrWhiteSpace(secretKey) || Encoding.UTF8.GetByteCount(secretKey) < 32)
@@ -62,22 +75,47 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidAudience = audience,
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey))
         };
+
+        // Re-validate the account on every request so deactivated/deleted users and role changes
+        // take effect immediately instead of when the JWT expires.
+        options.Events = new JwtBearerEvents
+        {
+            OnTokenValidated = async context =>
+            {
+                var principal = context.Principal;
+                var userId = principal is null ? string.Empty : CurrentActor.Id(principal);
+                var users = context.HttpContext.RequestServices
+                    .GetRequiredService<WorkflowEngine.Domain.Repositories.ISystemUserRepository>();
+                var user = string.IsNullOrEmpty(userId) ? null : await users.GetByIdAsync(userId, context.HttpContext.RequestAborted);
+
+                if (user == null || !string.Equals(user.Status, "Active", StringComparison.OrdinalIgnoreCase))
+                {
+                    context.Fail("User account is inactive or no longer exists.");
+                    return;
+                }
+
+                var tokenRole = principal!.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value;
+                if (!string.Equals(tokenRole, user.Role, StringComparison.Ordinal))
+                {
+                    context.Fail("User role changed. Please sign in again.");
+                }
+            }
+        };
     });
 
+builder.Services.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationHandler, PermissionAuthorizationHandler>();
 builder.Services.AddAuthorization(options =>
 {
+    // One policy per permission (roles are mapped to permissions in Domain/Security/Permissions.cs).
+    foreach (var permission in WorkflowEngine.Domain.Security.Permissions.All)
+    {
+        options.AddPolicy(permission, policy =>
+            policy.RequireAuthenticatedUser().AddRequirements(new PermissionRequirement(permission)));
+    }
+
     options.AddPolicy("AdminOnly", policy =>
         policy.RequireAuthenticatedUser()
               .RequireRole("Administrator", "BPM Administrator"));
-
-    options.AddPolicy("DesignerOrAdmin", policy =>
-        policy.RequireAuthenticatedUser()
-              .RequireRole(
-                  "Administrator",
-                  "BPM Administrator",
-                  "Workflow Designer",
-                  "Workflow Developer",
-                  "Process Manager"));
 });
 
 // 4. Rate Limiting (Brute-Force & API Abuse Protection)
@@ -177,15 +215,18 @@ app.MapGet("/health", () => Results.Ok(new
 
 // Map Feature Endpoint Groups
 app.MapAuthEndpoints();
+app.MapExternalAuthEndpoints();
 app.MapDefinitionEndpoints();
 app.MapInstanceEndpoints();
 app.MapTaskEndpoints();
+app.MapDelegationRuleEndpoints();
 app.MapDiagnosticEndpoints();
 app.MapSmartObjectEndpoints();
 app.MapSmartFormEndpoints();
 app.MapUserEndpoints();
 app.MapAnalyticsEndpoints();
 app.MapSettingEndpoints();
+app.MapConnectionEndpoints();
 
 // 6. Automatic EF Core Database Migration & Schema Initialization
 await app.Services.InitializeDatabaseAsync();

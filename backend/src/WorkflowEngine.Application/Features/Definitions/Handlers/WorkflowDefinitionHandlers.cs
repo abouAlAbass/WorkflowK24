@@ -1,6 +1,8 @@
 using WorkflowEngine.Application.Features.Definitions.Commands;
 using WorkflowEngine.Application.Features.Definitions.DTOs;
 using WorkflowEngine.Application.Features.Definitions.Queries;
+using WorkflowEngine.Application.Services;
+using WorkflowEngine.Application.Services.SmartObjects;
 using WorkflowEngine.Domain.Entities;
 using WorkflowEngine.Domain.Repositories;
 
@@ -13,17 +15,30 @@ public class WorkflowDefinitionHandlers
 {
     private readonly IWorkflowDefinitionRepository _definitionRepository;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly ISmartObjectContractValidator? _smartObjectContractValidator;
+    private readonly IParallelGraphValidator? _parallelGraphValidator;
 
     public WorkflowDefinitionHandlers(
         IWorkflowDefinitionRepository definitionRepository,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        ISmartObjectContractValidator? smartObjectContractValidator = null,
+        IParallelGraphValidator? parallelGraphValidator = null)
     {
         _definitionRepository = definitionRepository ?? throw new ArgumentNullException(nameof(definitionRepository));
         _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
+        _smartObjectContractValidator = smartObjectContractValidator;
+        _parallelGraphValidator = parallelGraphValidator;
     }
 
     public async Task<WorkflowDefinitionCreatedResult> Handle(CreateWorkflowDefinitionCommand command, CancellationToken ct)
     {
+        _parallelGraphValidator?.ValidateGraph(command.GraphJson);
+
+        if (_smartObjectContractValidator != null)
+        {
+            await _smartObjectContractValidator.ValidateGraphAsync(command.GraphJson, ct);
+        }
+
         var definition = await _definitionRepository.GetByKeyWithVersionsAsync(command.WorkflowKey, ct);
 
         if (definition == null)

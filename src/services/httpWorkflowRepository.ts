@@ -5,12 +5,23 @@ import type {
   SmartObjectEntity,
   SmartObjectRecord,
   UserRecord,
+  UserAuditEntry,
   AnalyticsKpiData,
   SystemSettingsData,
   ViewFlowData,
   InstanceEventsPage,
-  InstanceCommandResponse
+  InstanceCommandResponse,
+  ConnectionRecord,
+  CreateConnectionPayload,
+  TaskAssignmentRecord,
+  DelegationRuleRecord,
+  CreateDelegationRulePayload,
+  PublicAuthProvidersResponse,
+  AuthProviderRecord,
+  UpsertAuthProviderPayload
 } from '../types/workflow';
+import type { UserDirectoryItem, SmartObjectLookupPage } from '../types/smartform';
+import { hasPermission, PERMISSIONS, ROLES } from '../types/roles';
 import type {
   WorkflowRepository,
   AppMode,
@@ -425,7 +436,20 @@ export class HttpWorkflowRepository implements WorkflowRepository {
       formId: t.formId ?? null,
       formVersionId: t.formVersionId ?? null,
       formMode: t.formMode === 'editable' ? 'editable' : 'readonly',
-      formData: t.formData && typeof t.formData === 'object' ? t.formData : {}
+      formData: t.formData && typeof t.formData === 'object' ? t.formData : {},
+      assigneeType: t.assigneeType,
+      assigneeId: t.assigneeId,
+      originalAssigneeId: t.originalAssigneeId ?? null,
+      resolutionPolicy: t.resolutionPolicy || 'Single',
+      quorumCount: t.quorumCount ?? null,
+      claimedByUserId: t.claimedByUserId ?? null,
+      claimedAt: t.claimedAt ?? null,
+      dueAt: t.dueAt ?? t.dueDate ?? null,
+      completedByUserId: t.completedByUserId ?? t.completedBy ?? null,
+      onBehalfOfUserId: t.onBehalfOfUserId ?? null,
+      escalatedAt: t.escalatedAt ?? null,
+      version: typeof t.version === 'number' ? t.version : 1,
+      metadataJson: t.metadataJson ?? null
     }));
   }
 
@@ -450,75 +474,214 @@ export class HttpWorkflowRepository implements WorkflowRepository {
     });
 
     if (!response.ok) {
-      throw new Error(`Failed to complete task: ${response.statusText}`);
+      await this.parseErrorAndThrow(response, `Failed to complete task: ${response.statusText}`);
+    }
+  }
+
+  async delegateTask(
+    taskId: string,
+    targetAssigneeId: string,
+    reason?: string,
+    expectedVersion?: number
+  ): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/tasks/${encodeURIComponent(taskId)}/delegate`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ targetAssigneeId, targetAssigneeType: 'User', reason, expectedVersion })
+    });
+
+    if (!response.ok) {
+      await this.parseErrorAndThrow(response, `Failed to delegate task '${taskId}'.`);
+    }
+  }
+
+  async recallTask(taskId: string, reason?: string, expectedVersion?: number): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/tasks/${encodeURIComponent(taskId)}/recall`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ reason, expectedVersion })
+    });
+
+    if (!response.ok) {
+      await this.parseErrorAndThrow(response, `Failed to recall task '${taskId}'.`);
+    }
+  }
+
+  async claimTask(taskId: string, expectedVersion?: number): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/tasks/${encodeURIComponent(taskId)}/claim`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ expectedVersion })
+    });
+
+    if (!response.ok) {
+      await this.parseErrorAndThrow(response, `Failed to claim task '${taskId}'.`);
+    }
+  }
+
+  async releaseTask(taskId: string, reason?: string, expectedVersion?: number): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/tasks/${encodeURIComponent(taskId)}/release`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ reason, expectedVersion })
+    });
+
+    if (!response.ok) {
+      await this.parseErrorAndThrow(response, `Failed to release task '${taskId}'.`);
+    }
+  }
+
+  async getTaskAssignments(taskId: string): Promise<TaskAssignmentRecord[]> {
+    const response = await fetch(`${this.baseUrl}/tasks/${encodeURIComponent(taskId)}/assignments`, {
+      headers: this.getHeaders()
+    });
+
+    if (!response.ok) {
+      return [];
+    }
+
+    return await response.json();
+  }
+
+  async getDelegationRules(): Promise<DelegationRuleRecord[]> {
+    const response = await fetch(`${this.baseUrl}/delegation-rules`, {
+      headers: this.getHeaders()
+    });
+
+    if (!response.ok) {
+      return [];
+    }
+
+    return await response.json();
+  }
+
+  async createDelegationRule(payload: CreateDelegationRulePayload): Promise<DelegationRuleRecord> {
+    const response = await fetch(`${this.baseUrl}/delegation-rules`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      await this.parseErrorAndThrow(response, 'Failed to create delegation rule.');
+    }
+
+    return await response.json();
+  }
+
+  async deleteDelegationRule(id: string): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/delegation-rules/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: this.getHeaders()
+    });
+
+    if (!response.ok && response.status !== 404) {
+      await this.parseErrorAndThrow(response, `Failed to delete delegation rule '${id}'.`);
     }
   }
 
   async getUsers(): Promise<UserRecord[]> {
-    try {
-      const response = await fetch(`${this.baseUrl}/users`, {
-        headers: this.getHeaders()
-      });
-      if (response.ok) {
-        const users = await response.json();
-        if (Array.isArray(users) && users.length > 0) {
-          return users;
-        }
-      }
-    } catch {
-      // Fallback
-    }
+    const canReadFullList = hasPermission(this.authSession?.user?.role, PERMISSIONS.UsersRead);
 
-    return [
-      {
-        id: 'usr-adel',
-        name: 'Adel Sebti',
-        email: 'adel.sebti@corp.internal',
-        role: 'BPM Administrator',
-        group: 'Engineering',
-        status: 'Active',
-        avatarUrl: '/avatars/user-2.svg'
-      },
-      {
-        id: 'usr-karim',
-        name: 'Karim Khmissi',
-        email: 'karim.khmissi@corp.internal',
-        role: 'Process Manager',
-        group: 'Finance',
-        status: 'Active',
-        avatarUrl: '/avatars/user-3.svg'
+    try {
+      if (canReadFullList) {
+        const response = await fetch(`${this.baseUrl}/users`, { headers: this.getHeaders() });
+        if (response.ok) {
+          const users = await response.json();
+          return Array.isArray(users) ? users : [];
+        }
+        return [];
       }
-    ];
+
+      // Non-admins only get the sanitized directory (no roles/status exposed by the API).
+      const directory = await this.searchUsers('', 50);
+      return directory.map(d => ({
+        id: d.id,
+        name: d.displayName,
+        email: d.email,
+        role: ROLES.EndUser,
+        group: d.department,
+        status: 'Active' as const,
+        avatarUrl: '/avatars/user-2.svg'
+      }));
+    } catch {
+      return [];
+    }
   }
 
   async createUser(user: Omit<UserRecord, 'id'>): Promise<UserRecord> {
-    try {
-      const response = await fetch(`${this.baseUrl}/users`, {
-        method: 'POST',
-        headers: this.getHeaders(),
-        body: JSON.stringify(user)
-      });
-      if (response.ok) {
-        return await response.json();
-      }
-    } catch {
-      // Fallback
+    const response = await fetch(`${this.baseUrl}/users`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify(user)
+    });
+    if (response.ok) {
+      return await response.json();
     }
+    if (response.status === 403) {
+      throw new Error('Only the principal administrator can create users.');
+    }
+    let detail = '';
+    try {
+      const body = await response.json();
+      detail = body?.error || body?.title || Object.values(body?.errors ?? {}).flat().join(' ');
+    } catch {
+      // ignore non-JSON body
+    }
+    throw new Error(detail || `Failed to create user (HTTP ${response.status}).`);
+  }
 
-    return {
-      ...user,
-      id: `usr-${Date.now()}`
-    };
+  private async readError(response: Response, fallback: string): Promise<string> {
+    try {
+      const body = await response.json();
+      return body?.error || body?.title || Object.values(body?.errors ?? {}).flat().join(' ') || fallback;
+    } catch {
+      return fallback;
+    }
+  }
+
+  async updateUser(
+    id: string,
+    updates: Pick<UserRecord, 'name' | 'role' | 'group' | 'status'> & { avatarUrl?: string }
+  ): Promise<UserRecord> {
+    const response = await fetch(`${this.baseUrl}/users/${id}`, {
+      method: 'PUT',
+      headers: this.getHeaders(),
+      body: JSON.stringify(updates)
+    });
+    if (!response.ok) {
+      throw new Error(await this.readError(response, `Failed to update user (HTTP ${response.status}).`));
+    }
+    return await response.json();
+  }
+
+  async resetUserPassword(id: string, newPassword: string): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/users/${id}/reset-password`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ newPassword })
+    });
+    if (!response.ok) {
+      throw new Error(await this.readError(response, `Failed to reset password (HTTP ${response.status}).`));
+    }
+  }
+
+  async getUserAuditLog(limit = 50): Promise<UserAuditEntry[]> {
+    const response = await fetch(`${this.baseUrl}/users/audit?limit=${limit}`, { headers: this.getHeaders() });
+    if (!response.ok) return [];
+    return await response.json();
   }
 
   async deleteUser(id: string): Promise<void> {
-    try {
-      await fetch(`${this.baseUrl}/users/${id}`, {
-        method: 'DELETE',
-        headers: this.getHeaders()
-      });
-    } catch {
-      // Fallback
+    const response = await fetch(`${this.baseUrl}/users/${id}`, {
+      method: 'DELETE',
+      headers: this.getHeaders()
+    });
+    if (!response.ok) {
+      throw new Error(await this.readError(
+        response,
+        `Failed to delete user (HTTP ${response.status}).`
+      ));
     }
   }
 
@@ -630,6 +793,42 @@ export class HttpWorkflowRepository implements WorkflowRepository {
       // fallback
     }
     return [...(this.localSmartObjectData[smartObjectId] || [])];
+  }
+
+  async searchUsers(query = '', limit = 20): Promise<UserDirectoryItem[]> {
+    const params = new URLSearchParams();
+    if (query.trim()) params.set('q', query.trim());
+    params.set('limit', String(limit));
+
+    const res = await fetch(`${this.baseUrl}/users/search?${params.toString()}`, {
+      headers: this.getHeaders()
+    });
+    if (!res.ok) {
+      await this.parseErrorAndThrow(res, 'Failed to search user directory.');
+    }
+    return await res.json();
+  }
+
+  async lookupSmartObject(
+    smartObjectId: string,
+    query = '',
+    page = 1,
+    pageSize = 25
+  ): Promise<SmartObjectLookupPage> {
+    const params = new URLSearchParams({
+      page: String(page),
+      pageSize: String(pageSize)
+    });
+    if (query.trim()) params.set('q', query.trim());
+
+    const res = await fetch(
+      `${this.baseUrl}/smartobjects/${encodeURIComponent(smartObjectId)}/lookup?${params.toString()}`,
+      { headers: this.getHeaders() }
+    );
+    if (!res.ok) {
+      await this.parseErrorAndThrow(res, `Failed to lookup records for SmartObject '${smartObjectId}'.`);
+    }
+    return await res.json();
   }
 
   async addSmartObjectRecord(smartObjectId: string, record: SmartObjectRecord): Promise<SmartObjectRecord> {
@@ -773,5 +972,337 @@ export class HttpWorkflowRepository implements WorkflowRepository {
       telemetryEnabled: settings.telemetryEnabled ?? true,
       mfaEnforced: settings.mfaEnforced ?? false
     };
+  }
+
+  async getConnections(): Promise<ConnectionRecord[]> {
+    const response = await fetch(`${this.baseUrl}/connections`, {
+      headers: this.getHeaders()
+    });
+
+    if (!response.ok) {
+      await this.parseErrorAndThrow(response, 'Failed to fetch connections.');
+    }
+
+    return await response.json();
+  }
+
+  async createConnection(payload: CreateConnectionPayload): Promise<ConnectionRecord> {
+    const response = await fetch(`${this.baseUrl}/connections`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      await this.parseErrorAndThrow(response, 'Failed to create connection.');
+    }
+
+    return await response.json();
+  }
+
+  async deleteConnection(id: string): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/connections/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: this.getHeaders()
+    });
+
+    if (!response.ok && response.status !== 404) {
+      await this.parseErrorAndThrow(response, `Failed to delete connection '${id}'.`);
+    }
+  }
+
+  async testConnection(id: string): Promise<import('../types/workflow').ConnectionTestResult> {
+    const response = await fetch(`${this.baseUrl}/connections/${encodeURIComponent(id)}/test`, {
+      method: 'POST',
+      headers: this.getHeaders()
+    });
+
+    if (!response.ok) {
+      await this.parseErrorAndThrow(response, `Failed to test connection '${id}'.`);
+    }
+
+    return await response.json();
+  }
+
+  async rotateConnectionSecret(
+    id: string,
+    payload: import('../types/workflow').RotateConnectionSecretPayload
+  ): Promise<ConnectionRecord> {
+    const response = await fetch(`${this.baseUrl}/connections/${encodeURIComponent(id)}/rotate-secret`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      await this.parseErrorAndThrow(response, `Failed to rotate secret for connection '${id}'.`);
+    }
+
+    return await response.json();
+  }
+
+  async getConnectionUsage(
+    id: string,
+    limit = 50
+  ): Promise<import('../types/workflow').ConnectionUsageResponse> {
+    const response = await fetch(
+      `${this.baseUrl}/connections/${encodeURIComponent(id)}/usage?limit=${encodeURIComponent(String(limit))}`,
+      {
+        headers: this.getHeaders()
+      }
+    );
+
+    if (!response.ok) {
+      await this.parseErrorAndThrow(response, `Failed to load usage logs for connection '${id}'.`);
+    }
+
+    return await response.json();
+  }
+
+  async getConnectionEnvironments(
+    id: string
+  ): Promise<import('../types/workflow').ConnectionEnvironmentConfigRecord[]> {
+    const response = await fetch(`${this.baseUrl}/connections/${encodeURIComponent(id)}/environments`, {
+      headers: this.getHeaders()
+    });
+
+    if (!response.ok) {
+      await this.parseErrorAndThrow(response, `Failed to load environment overrides for connection '${id}'.`);
+    }
+
+    return await response.json();
+  }
+
+  async upsertConnectionEnvironment(
+    id: string,
+    payload: import('../types/workflow').UpsertConnectionEnvironmentConfigPayload
+  ): Promise<import('../types/workflow').ConnectionEnvironmentConfigRecord> {
+    const response = await fetch(`${this.baseUrl}/connections/${encodeURIComponent(id)}/environments`, {
+      method: 'PUT',
+      headers: this.getHeaders(),
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      await this.parseErrorAndThrow(response, `Failed to save environment override for connection '${id}'.`);
+    }
+
+    return await response.json();
+  }
+
+  async getConnectionPermissions(connectionId: string): Promise<import('../types/workflow').ConnectionPermissionRecord[]> {
+    const response = await fetch(`${this.baseUrl}/connections/${encodeURIComponent(connectionId)}/permissions`, {
+      headers: this.getHeaders()
+    });
+
+    if (!response.ok) {
+      await this.parseErrorAndThrow(response, `Failed to fetch permissions for connection '${connectionId}'.`);
+    }
+
+    return await response.json();
+  }
+
+  async upsertConnectionPermission(
+    connectionId: string,
+    payload: import('../types/workflow').UpsertConnectionPermissionPayload
+  ): Promise<import('../types/workflow').ConnectionPermissionRecord> {
+    const response = await fetch(`${this.baseUrl}/connections/${encodeURIComponent(connectionId)}/permissions`, {
+      method: 'PUT',
+      headers: this.getHeaders(),
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      await this.parseErrorAndThrow(response, `Failed to save permission for connection '${connectionId}'.`);
+    }
+
+    return await response.json();
+  }
+
+  async deleteConnectionPermission(connectionId: string, permissionId: string): Promise<void> {
+    const response = await fetch(
+      `${this.baseUrl}/connections/${encodeURIComponent(connectionId)}/permissions/${encodeURIComponent(permissionId)}`,
+      {
+        method: 'DELETE',
+        headers: this.getHeaders()
+      }
+    );
+
+    if (!response.ok && response.status !== 404) {
+      await this.parseErrorAndThrow(response, `Failed to delete permission '${permissionId}'.`);
+    }
+  }
+
+  async getMyConnectionCredentials(): Promise<import('../types/workflow').UserConnectionCredentialRecord[]> {
+    const response = await fetch(`${this.baseUrl}/me/connection-credentials`, {
+      headers: this.getHeaders()
+    });
+
+    if (!response.ok) {
+      await this.parseErrorAndThrow(response, 'Failed to fetch personal credentials.');
+    }
+
+    return await response.json();
+  }
+
+  async upsertMyConnectionCredential(
+    connectionId: string,
+    secretJson: string
+  ): Promise<import('../types/workflow').UserConnectionCredentialRecord> {
+    const response = await fetch(`${this.baseUrl}/me/connection-credentials/${encodeURIComponent(connectionId)}`, {
+      method: 'PUT',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ secretJson })
+    });
+
+    if (!response.ok) {
+      await this.parseErrorAndThrow(response, 'Failed to save personal credential.');
+    }
+
+    return await response.json();
+  }
+
+  async deleteMyConnectionCredential(connectionId: string): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/me/connection-credentials/${encodeURIComponent(connectionId)}`, {
+      method: 'DELETE',
+      headers: this.getHeaders()
+    });
+
+    if (!response.ok && response.status !== 404) {
+      await this.parseErrorAndThrow(response, 'Failed to delete personal credential.');
+    }
+  }
+
+  async discoverConnectionEntities(
+    connectionId: string
+  ): Promise<import('../types/workflow').DiscoveredEntity[]> {
+    const response = await fetch(`${this.baseUrl}/connections/${encodeURIComponent(connectionId)}/discover`, {
+      headers: this.getHeaders()
+    });
+
+    if (!response.ok) {
+      await this.parseErrorAndThrow(response, `Failed to discover entities for connection '${connectionId}'.`);
+    }
+
+    return await response.json();
+  }
+
+  async generateSmartObjectFromConnection(
+    connectionId: string,
+    payload: import('../types/workflow').GenerateSmartObjectFromConnectionPayload
+  ): Promise<SmartObjectEntity> {
+    const response = await fetch(`${this.baseUrl}/connections/${encodeURIComponent(connectionId)}/generate-smartobject`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      await this.parseErrorAndThrow(response, `Failed to generate SmartObject from connection '${connectionId}'.`);
+    }
+
+    return await response.json();
+  }
+
+  async syncSmartObjectSchema(
+    smartObjectId: string,
+    apply = false
+  ): Promise<import('../types/workflow').SchemaDiffResult> {
+    const response = await fetch(`${this.baseUrl}/smartobjects/${encodeURIComponent(smartObjectId)}/sync-schema`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ apply })
+    });
+
+    if (!response.ok) {
+      await this.parseErrorAndThrow(response, `Failed to synchronize schema for SmartObject '${smartObjectId}'.`);
+    }
+
+    return await response.json();
+  }
+
+  async getPublicAuthProviders(): Promise<PublicAuthProvidersResponse> {
+    const response = await fetch(`${this.baseUrl}/auth/providers`);
+    if (!response.ok) {
+      return { localLoginEnabled: true, providers: [] };
+    }
+    return await response.json();
+  }
+
+  getExternalChallengeUrl(providerId: string): string {
+    return `${this.baseUrl}/auth/external/${encodeURIComponent(providerId)}/challenge`;
+  }
+
+  async exchangeExternalAuthCode(exchangeCode: string): Promise<AuthSession> {
+    const response = await fetch(`${this.baseUrl}/auth/external/exchange`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ exchangeCode })
+    });
+
+    if (!response.ok) {
+      await this.parseErrorAndThrow(response, 'Failed to exchange SSO login code.');
+    }
+
+    const data = await response.json();
+    const session: AuthSession = {
+      token: data.token,
+      user: {
+        id: data.userId,
+        name: data.name,
+        email: data.email,
+        role: data.role,
+        group: data.group,
+        status: 'Active',
+        avatarUrl: '/avatars/user-2.svg'
+      }
+    };
+
+    this.saveAuth(session);
+    return session;
+  }
+
+  async getAdminAuthProviders(): Promise<AuthProviderRecord[]> {
+    const response = await fetch(`${this.baseUrl}/admin/auth-providers`, {
+      headers: this.getHeaders()
+    });
+    if (!response.ok) {
+      await this.parseErrorAndThrow(response, 'Failed to load OIDC auth providers.');
+    }
+    return await response.json();
+  }
+
+  async createAuthProvider(payload: UpsertAuthProviderPayload): Promise<AuthProviderRecord> {
+    const response = await fetch(`${this.baseUrl}/admin/auth-providers`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify(payload)
+    });
+    if (!response.ok) {
+      await this.parseErrorAndThrow(response, 'Failed to create OIDC auth provider.');
+    }
+    return await response.json();
+  }
+
+  async updateAuthProvider(id: string, payload: UpsertAuthProviderPayload): Promise<AuthProviderRecord> {
+    const response = await fetch(`${this.baseUrl}/admin/auth-providers/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      headers: this.getHeaders(),
+      body: JSON.stringify(payload)
+    });
+    if (!response.ok) {
+      await this.parseErrorAndThrow(response, `Failed to update OIDC auth provider '${id}'.`);
+    }
+    return await response.json();
+  }
+
+  async deleteAuthProvider(id: string): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/admin/auth-providers/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: this.getHeaders()
+    });
+    if (!response.ok && response.status !== 404) {
+      await this.parseErrorAndThrow(response, `Failed to delete OIDC auth provider '${id}'.`);
+    }
   }
 }

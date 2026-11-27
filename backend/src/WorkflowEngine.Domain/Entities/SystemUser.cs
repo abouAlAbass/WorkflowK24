@@ -15,6 +15,8 @@ public class SystemUser
     public string Group { get; private set; } = "General";
     public string Status { get; private set; } = "Active";
     public string AvatarUrl { get; private set; } = string.Empty;
+    public int FailedLoginCount { get; private set; }
+    public DateTime? LockoutEnd { get; private set; }
     public DateTime CreatedAt { get; private set; }
     public DateTime UpdatedAt { get; private set; }
 
@@ -45,6 +47,38 @@ public class SystemUser
     public void SetPassword(string plainTextPassword)
     {
         PasswordHash = PasswordHasher.HashPassword(plainTextPassword);
+        FailedLoginCount = 0;
+        LockoutEnd = null;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    public bool IsLockedOut(DateTime utcNow) => LockoutEnd.HasValue && LockoutEnd.Value > utcNow;
+
+    /// <summary>Records a failed sign-in; returns true when this failure triggers a lockout.</summary>
+    public bool RegisterFailedLogin(int maxAttempts, TimeSpan lockoutDuration, DateTime utcNow)
+    {
+        // An expired lockout starts a fresh window.
+        if (LockoutEnd.HasValue && LockoutEnd.Value <= utcNow)
+        {
+            FailedLoginCount = 0;
+            LockoutEnd = null;
+        }
+
+        FailedLoginCount++;
+        UpdatedAt = utcNow;
+        if (FailedLoginCount >= maxAttempts)
+        {
+            LockoutEnd = utcNow.Add(lockoutDuration);
+            return true;
+        }
+
+        return false;
+    }
+
+    public void ResetLockout()
+    {
+        FailedLoginCount = 0;
+        LockoutEnd = null;
         UpdatedAt = DateTime.UtcNow;
     }
 

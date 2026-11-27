@@ -21,6 +21,8 @@ public class WorkflowTaskRepository : IWorkflowTaskRepository
             .Include(t => t.Instance)
                 .ThenInclude(i => i.WorkflowVersion)
                     .ThenInclude(v => v.Definition)
+            .Include(t => t.Slots)
+            .Include(t => t.Assignments)
             .FirstOrDefaultAsync(t => t.TaskId == taskId, ct);
     }
 
@@ -34,6 +36,16 @@ public class WorkflowTaskRepository : IWorkflowTaskRepository
                 .ThenInclude(i => i.AuditLogs)
             .Include(t => t.Instance)
                 .ThenInclude(i => i.Tasks)
+            .Include(t => t.Instance)
+                .ThenInclude(i => i.Events)
+            .Include(t => t.Instance)
+                .ThenInclude(i => i.NodeExecutions)
+            .Include(t => t.Instance)
+                .ThenInclude(i => i.Tokens)
+            .Include(t => t.Instance)
+                .ThenInclude(i => i.JoinStates)
+            .Include(t => t.Slots)
+            .Include(t => t.Assignments)
             .FirstOrDefaultAsync(t => t.TaskId == taskId, ct);
     }
 
@@ -42,12 +54,14 @@ public class WorkflowTaskRepository : IWorkflowTaskRepository
         IReadOnlyList<string> userGroups,
         bool isAdmin,
         TaskStatus? status = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        IReadOnlyList<string>? userRoles = null)
     {
         var query = _dbContext.WorkflowTasks
             .Include(t => t.Instance)
                 .ThenInclude(i => i.WorkflowVersion)
                     .ThenInclude(v => v.Definition)
+            .Include(t => t.Slots)
             .AsQueryable();
 
         if (!isAdmin)
@@ -57,15 +71,28 @@ public class WorkflowTaskRepository : IWorkflowTaskRepository
                 .Where(g => !string.IsNullOrWhiteSpace(g))
                 .Select(g => g.Trim().ToLower())
                 .ToList();
+            var normalizedRoles = (userRoles ?? Array.Empty<string>())
+                .Where(r => !string.IsNullOrWhiteSpace(r))
+                .Select(r => r.Trim().ToLower())
+                .ToList();
 
             query = query.Where(t =>
                 (t.AssigneeType == AssigneeType.User && t.AssigneeId.ToLower() == normalizedUser) ||
-                (t.AssigneeType == AssigneeType.Group && normalizedGroups.Contains(t.AssigneeId.ToLower())));
+                (t.AssigneeType == AssigneeType.Group && normalizedGroups.Contains(t.AssigneeId.ToLower())) ||
+                (t.AssigneeType == AssigneeType.Role && normalizedRoles.Contains(t.AssigneeId.ToLower())) ||
+                t.OriginalAssigneeId.ToLower() == normalizedUser);
         }
 
         if (status.HasValue)
         {
-            query = query.Where(t => t.Status == status.Value);
+            if (status.Value == TaskStatus.Pending)
+            {
+                query = query.Where(t => t.Status == TaskStatus.Pending || t.Status == TaskStatus.Delegated);
+            }
+            else
+            {
+                query = query.Where(t => t.Status == status.Value);
+            }
         }
 
         return await query.OrderByDescending(t => t.AssignedAt).ToListAsync(ct);
@@ -77,11 +104,19 @@ public class WorkflowTaskRepository : IWorkflowTaskRepository
             .Include(t => t.Instance)
                 .ThenInclude(i => i.WorkflowVersion)
                     .ThenInclude(v => v.Definition)
+            .Include(t => t.Slots)
             .Where(t => t.AssigneeId == assigneeId);
 
         if (status.HasValue)
         {
-            query = query.Where(t => t.Status == status.Value);
+            if (status.Value == TaskStatus.Pending)
+            {
+                query = query.Where(t => t.Status == TaskStatus.Pending || t.Status == TaskStatus.Delegated);
+            }
+            else
+            {
+                query = query.Where(t => t.Status == status.Value);
+            }
         }
 
         return await query.OrderByDescending(t => t.AssignedAt).ToListAsync(ct);
@@ -93,8 +128,34 @@ public class WorkflowTaskRepository : IWorkflowTaskRepository
             .Include(t => t.Instance)
                 .ThenInclude(i => i.WorkflowVersion)
                     .ThenInclude(v => v.Definition)
-            .Where(t => t.InstanceId == instanceId && t.Status == TaskStatus.Pending)
+            .Include(t => t.Slots)
+            .Where(t => t.InstanceId == instanceId && (t.Status == TaskStatus.Pending || t.Status == TaskStatus.Delegated))
             .OrderBy(t => t.AssignedAt)
+            .ToListAsync(ct);
+    }
+
+    public async Task<IReadOnlyList<TaskAssignment>> GetAssignmentsAsync(string taskId, CancellationToken ct = default)
+    {
+        return await _dbContext.TaskAssignments
+            .Where(a => a.TaskId == taskId)
+            .OrderBy(a => a.CreatedAt)
+            .ThenBy(a => a.Id)
+            .ToListAsync(ct);
+    }
+
+    public async Task<IReadOnlyList<WorkflowTask>> GetOverdueTasksAsync(DateTime utcNow, CancellationToken ct = default)
+    {
+        return await _dbContext.WorkflowTasks
+            .Include(t => t.Instance)
+                .ThenInclude(i => i.WorkflowVersion)
+                    .ThenInclude(v => v.Definition)
+            .Include(t => t.Instance)
+                .ThenInclude(i => i.Events)
+            .Include(t => t.Assignments)
+            .Where(t =>
+                (t.Status == TaskStatus.Pending || t.Status == TaskStatus.Delegated) &&
+                t.EscalatedAt == null &&
+                ((t.DueAt != null && t.DueAt < utcNow) || (t.DueAt == null && t.DueDate != null && t.DueDate < utcNow)))
             .ToListAsync(ct);
     }
 

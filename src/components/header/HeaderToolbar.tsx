@@ -125,7 +125,7 @@ export const HeaderToolbar: React.FC<HeaderToolbarProps> = ({
               onChange={handleWorkflowNameChange}
               title={workflowName}
               aria-label="Workflow Title"
-              className="bg-transparent text-sm font-extrabold text-[#0F172A] dark:text-slate-100 truncate focus:truncate-none focus:px-2 focus:py-0.5 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2563EB] transition-all border-b border-transparent hover:border-slate-300 dark:hover:border-slate-700 min-w-0 max-w-full"
+              className="ty-workflow-title bg-transparent truncate focus:truncate-none focus:px-2 focus:py-0.5 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2563EB] transition-all border-b border-transparent hover:border-slate-300 dark:hover:border-slate-700 min-w-0 max-w-full"
             />
           </div>
           <div className="flex items-center gap-2 -mt-0.5">

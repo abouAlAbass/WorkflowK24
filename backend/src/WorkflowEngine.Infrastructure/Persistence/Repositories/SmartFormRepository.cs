@@ -96,12 +96,47 @@ public class SmartFormRepository : ISmartFormRepository
         await _context.SaveChangesAsync(ct);
     }
 
+    public async Task UpdateSubmissionAsync(SmartFormSubmissionEntity submission, CancellationToken ct = default)
+    {
+        var entry = _context.Entry(submission);
+        if (entry.State == EntityState.Detached)
+        {
+            _context.SmartFormSubmissions.Update(submission);
+        }
+        await _context.SaveChangesAsync(ct);
+    }
+
+    public async Task<SmartFormSubmissionEntity?> GetSubmissionByIdAsync(string submissionId, CancellationToken ct = default)
+    {
+        return await _context.SmartFormSubmissions
+            .FirstOrDefaultAsync(s => s.Id == submissionId, ct);
+    }
+
     public async Task<IReadOnlyList<SmartFormSubmissionEntity>> GetSubmissionsAsync(string smartFormId, CancellationToken ct = default)
     {
         return await _context.SmartFormSubmissions
             .AsNoTracking()
-            .Where(s => s.SmartFormId == smartFormId)
+            .Where(s => s.SmartFormId == smartFormId && s.Status == SmartFormSubmissionEntity.StatusSubmitted)
             .OrderByDescending(s => s.SubmittedAt)
+            .ToListAsync(ct);
+    }
+
+    public async Task<IReadOnlyList<SmartFormSubmissionEntity>> GetSubmissionsByUserAsync(
+        string submittedBy,
+        string? alternateUserId = null,
+        CancellationToken ct = default)
+    {
+        string primaryLower = submittedBy.Trim().ToLowerInvariant();
+        string? altLower = string.IsNullOrWhiteSpace(alternateUserId) ? null : alternateUserId.Trim().ToLowerInvariant();
+
+        var query = _context.SmartFormSubmissions
+            .AsNoTracking()
+            .Where(s =>
+                s.SubmittedBy.ToLower() == primaryLower ||
+                (altLower != null && s.SubmittedBy.ToLower() == altLower));
+
+        return await query
+            .OrderByDescending(s => s.UpdatedAt)
             .ToListAsync(ct);
     }
 

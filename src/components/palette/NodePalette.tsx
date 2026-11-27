@@ -8,7 +8,11 @@ import {
   GripVertical, 
   FolderKanban, 
   Plus,
-  Layers
+  Layers,
+  Globe,
+  Database,
+  GitFork,
+  GitMerge
 } from 'lucide-react';
 import type { NodeType } from '../../types/workflow';
 import { useWorkflowStore } from '../../hooks/useWorkflowStore';
@@ -17,7 +21,7 @@ import { useTheme } from '../../hooks/useTheme';
 interface NodePaletteItem {
   type: NodeType;
   label: string;
-  category: 'Triggers' | 'Tasks' | 'Notifications' | 'Logic' | 'Stages' | 'End';
+  category: 'Triggers' | 'Tasks' | 'Notifications' | 'Integrations' | 'Logic' | 'Stages' | 'End';
   description: string;
   icon: React.ReactNode;
   colorClass: string;
@@ -62,6 +66,24 @@ const PALETTE_ITEMS: NodePaletteItem[] = [
     badgeBg: 'bg-amber-50 dark:bg-amber-950/60 text-[#D97706] dark:text-amber-400 border border-amber-200 dark:border-amber-800'
   },
   {
+    type: 'http',
+    label: 'HTTP / REST Call',
+    category: 'Integrations',
+    description: 'SSRF-safe REST API call via Connection with retry & mapping',
+    icon: <Globe className="w-3.5 h-3.5 text-[#0891B2]" />,
+    colorClass: 'border-cyan-200 dark:border-cyan-800/80 hover:border-cyan-400 bg-white dark:bg-slate-800',
+    badgeBg: 'bg-cyan-50 dark:bg-cyan-950/60 text-[#0891B2] dark:text-cyan-400 border border-cyan-200 dark:border-cyan-800'
+  },
+  {
+    type: 'smartObject',
+    label: 'SmartObject Action',
+    category: 'Integrations',
+    description: 'Invoke a versioned SmartObject@Version method with typed mapping',
+    icon: <Database className="w-3.5 h-3.5 text-[#0D9488]" />,
+    colorClass: 'border-teal-200 dark:border-teal-800/80 hover:border-teal-400 bg-white dark:bg-slate-800',
+    badgeBg: 'bg-teal-50 dark:bg-teal-950/60 text-[#0D9488] dark:text-teal-400 border border-teal-200 dark:border-teal-800'
+  },
+  {
     type: 'decision',
     label: 'Decision / Rule',
     category: 'Logic',
@@ -69,6 +91,24 @@ const PALETTE_ITEMS: NodePaletteItem[] = [
     icon: <GitBranch className="w-3.5 h-3.5 text-[#7C3AED]" />,
     colorClass: 'border-purple-200 dark:border-purple-800/80 hover:border-purple-400 bg-white dark:bg-slate-800',
     badgeBg: 'bg-purple-50 dark:bg-purple-950/60 text-[#7C3AED] dark:text-purple-400 border border-purple-200 dark:border-purple-800'
+  },
+  {
+    type: 'parallelSplit',
+    label: 'Parallel Split',
+    category: 'Logic',
+    description: 'Fork execution into parallel tokens (all, conditional, dynamic_foreach)',
+    icon: <GitFork className="w-3.5 h-3.5 text-[#0284C7]" />,
+    colorClass: 'border-sky-200 dark:border-sky-800/80 hover:border-sky-400 bg-white dark:bg-slate-800',
+    badgeBg: 'bg-sky-50 dark:bg-sky-950/60 text-[#0284C7] dark:text-sky-400 border border-sky-200 dark:border-sky-800'
+  },
+  {
+    type: 'parallelJoin',
+    label: 'Parallel Join',
+    category: 'Logic',
+    description: 'Resynchronize parallel branches (all, any, n_of_m) & merge variables',
+    icon: <GitMerge className="w-3.5 h-3.5 text-[#0F766E]" />,
+    colorClass: 'border-teal-200 dark:border-teal-800/80 hover:border-teal-400 bg-white dark:bg-slate-800',
+    badgeBg: 'bg-teal-50 dark:bg-teal-950/60 text-[#0F766E] dark:text-teal-400 border border-teal-200 dark:border-teal-800'
   },
   {
     type: 'end',
@@ -95,50 +135,50 @@ export const NodePalette: React.FC = () => {
   };
 
   return (
-    <aside className="w-72 bg-[#F8FAFC] dark:bg-slate-900 border-e border-slate-200 dark:border-slate-800 flex flex-col h-full z-10 select-none shadow-xs text-[#0F172A] dark:text-slate-100 transition-colors">
+    <aside className="w-72 shrink-0 bg-[#F8FAFC] dark:bg-slate-900 border-e border-slate-200 dark:border-slate-800 flex flex-col h-full z-10 select-none shadow-xs text-[#0F172A] dark:text-slate-100 transition-colors">
       {/* Sidebar Header */}
       <div className="p-3.5 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <FolderKanban className="w-4 h-4 text-[#2563EB] dark:text-blue-400" />
-          <h2 className="font-bold text-xs text-[#0F172A] dark:text-slate-100 uppercase tracking-wider">
+          <h2 className="ty-panel-title">
             {t.toolbox.title}
           </h2>
         </div>
-        <span className="text-[11px] bg-slate-100 dark:bg-slate-800 text-[#475569] dark:text-slate-300 px-2 py-0.5 rounded-full font-mono font-bold border border-slate-200 dark:border-slate-700">
+        <span className="ty-badge num-tabular shrink-0 bg-slate-100 dark:bg-slate-800 text-[#475569] dark:text-slate-300 rounded-full border border-slate-200 dark:border-slate-700">
           {nodes.length} {t.toolbox.nodesCount}
         </span>
       </div>
 
       {/* Preset Workflow Templates */}
-      <div className="p-2.5 border-b border-slate-200 dark:border-slate-800 bg-slate-100/60 dark:bg-slate-900/60">
-        <span className="text-[10px] font-bold uppercase tracking-wider block mb-1.5 px-1 text-[#475569] dark:text-slate-400">
+      <div className="p-2.5 border-b border-slate-200 dark:border-slate-800 bg-[#F8FAFC] dark:bg-slate-900/60">
+        <span className="ty-section block mb-1.5 px-1">
           {t.toolbox.sampleTemplates}
         </span>
         <div className="grid grid-cols-2 gap-1.5">
           <button
             onClick={() => loadTemplate('onboarding')}
-            className="px-2 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-blue-400 dark:hover:border-blue-500 bg-white dark:bg-slate-800 text-[11px] font-semibold text-[#0F172A] dark:text-slate-200 text-start truncate transition-colors shadow-2xs cursor-pointer focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="px-2 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-blue-400 dark:hover:border-blue-500 bg-white dark:bg-slate-800 ty-badge !font-semibold !text-xs text-[#0F172A] dark:text-slate-200 text-start break-words leading-tight transition-colors shadow-2xs cursor-pointer focus:outline-none focus:ring-1 focus:ring-blue-500"
             title="Load Employee Onboarding Workflow"
           >
             {t.toolbox.templates.onboarding}
           </button>
           <button
             onClick={() => loadTemplate('expense')}
-            className="px-2 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-blue-400 dark:hover:border-blue-500 bg-white dark:bg-slate-800 text-[11px] font-semibold text-[#0F172A] dark:text-slate-200 text-start truncate transition-colors shadow-2xs cursor-pointer focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="px-2 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-blue-400 dark:hover:border-blue-500 bg-white dark:bg-slate-800 ty-badge !font-semibold !text-xs text-[#0F172A] dark:text-slate-200 text-start break-words leading-tight transition-colors shadow-2xs cursor-pointer focus:outline-none focus:ring-1 focus:ring-blue-500"
             title="Load Purchase Request Workflow"
           >
             {t.toolbox.templates.expense}
           </button>
           <button
             onClick={() => loadTemplate('itAccess')}
-            className="px-2 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-blue-400 dark:hover:border-blue-500 bg-white dark:bg-slate-800 text-[11px] font-semibold text-[#0F172A] dark:text-slate-200 text-start truncate transition-colors shadow-2xs cursor-pointer focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="px-2 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-blue-400 dark:hover:border-blue-500 bg-white dark:bg-slate-800 ty-badge !font-semibold !text-xs text-[#0F172A] dark:text-slate-200 text-start break-words leading-tight transition-colors shadow-2xs cursor-pointer focus:outline-none focus:ring-1 focus:ring-blue-500"
             title="Load IT Access Request Workflow"
           >
             {t.toolbox.templates.itAccess}
           </button>
           <button
             onClick={() => loadTemplate('empty')}
-            className="px-2 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-rose-300 dark:hover:border-rose-500 bg-white dark:bg-slate-800 text-[11px] font-semibold text-[#DC2626] dark:text-rose-400 text-start truncate transition-colors shadow-2xs cursor-pointer focus:outline-none focus:ring-1 focus:ring-rose-500"
+            className="px-2 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-rose-300 dark:hover:border-rose-500 bg-white dark:bg-slate-800 ty-badge !font-semibold !text-xs text-[#DC2626] dark:text-rose-400 text-start break-words leading-tight transition-colors shadow-2xs cursor-pointer focus:outline-none focus:ring-1 focus:ring-rose-500"
             title="Clear canvas"
           >
             {t.toolbox.templates.blank}
@@ -148,7 +188,7 @@ export const NodePalette: React.FC = () => {
 
       {/* 8. Compact Draggable Node Cards List - Fits 1080p without scrolling */}
       <div className="flex-1 overflow-y-auto p-2.5 space-y-1.5">
-        <span className="text-[10px] font-bold uppercase tracking-wider block px-1 text-[#475569] dark:text-slate-400 mb-1">
+        <span className="ty-section block px-1 mb-1">
           {t.toolbox.dragDropComponents}
         </span>
 
@@ -166,17 +206,17 @@ export const NodePalette: React.FC = () => {
                   {item.icon}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-1.5">
-                    <h3 className="text-xs font-bold text-[#0F172A] dark:text-slate-100 truncate">
+                  <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 min-w-0">
+                    <h3 className="ty-node-title min-w-0" title={item.label}>
                       {item.label}
                     </h3>
-                    <span className={`inline-block text-[9px] font-mono font-bold px-1.5 py-0.2 rounded shrink-0 ${item.badgeBg}`}>
+                    <span className={`ty-badge inline-block rounded flex-shrink-0 ${item.badgeBg}`}>
                       {item.category}
                     </span>
                   </div>
                   {/* Single-line description with ellipsis + hover tooltip */}
                   <p 
-                    className="text-[11px] text-[#475569] dark:text-slate-300 truncate font-medium mt-0.5 leading-tight" 
+                    className="ty-node-desc line-clamp-2 mt-0.5" 
                     title={item.description}
                   >
                     {item.description}

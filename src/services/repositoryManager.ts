@@ -32,6 +32,10 @@ class RepositoryManager {
     return this.currentMode === 'connected' ? this.httpRepo : this.inMemoryRepo;
   }
 
+  getHttpRepository(): WorkflowRepository {
+    return this.httpRepo;
+  }
+
   isConfigured(): boolean {
     return localStorage.getItem(MODE_STORAGE_KEY) !== null;
   }

@@ -35,3 +35,20 @@ public sealed class SmartFormNotPublishedException : InvalidOperationException
     {
     }
 }
+
+/// <summary>
+/// Raised when SmartForm rules contain a circular dependency in the evaluation DAG.
+/// Mapped to HTTP 422 Unprocessable Entity with code CYCLIC_FORM_RULE.
+/// </summary>
+public sealed class CyclicFormRuleException : InvalidOperationException
+{
+    public const string ErrorCode = "CYCLIC_FORM_RULE";
+
+    public IReadOnlyList<string> CyclePath { get; }
+
+    public CyclicFormRuleException(string message, IReadOnlyList<string> cyclePath)
+        : base(message)
+    {
+        CyclePath = cyclePath;
+    }
+}

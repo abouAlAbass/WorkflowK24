@@ -25,7 +25,13 @@ namespace WorkflowEngine.Api.Endpoints;
 
 public record SubmitSmartFormRequest(
     Dictionary<string, object?> Data,
-    bool StartLinkedWorkflow = true
+    bool StartLinkedWorkflow = true,
+    string? DraftId = null
+);
+
+public record SaveSmartFormDraftRequest(
+    Dictionary<string, object?> Data,
+    string? DraftId = null
 );
 
 public record Base64AttachmentUploadRequest(
@@ -59,6 +65,24 @@ public static class SmartFormEndpoints
         .WithName("GetSmartForms")
         .WithSummary("Retrieves all registered No-Code SmartForm definitions.");
 
+        formsGroup.MapGet("/my-submissions", async (
+            ClaimsPrincipal principal,
+            IMessageBus bus,
+            CancellationToken ct) =>
+        {
+            var caller = ExtractCallerIdentity(principal);
+            if (string.IsNullOrWhiteSpace(caller.CurrentUserId))
+            {
+                return Results.Unauthorized();
+            }
+
+            var result = await bus.InvokeAsync<IReadOnlyList<SmartFormSubmissionDto>>(
+                new GetMySmartFormSubmissionsQuery(caller.CurrentUserId, caller.Sub), ct);
+            return Results.Ok(result);
+        })
+        .WithName("GetMySmartFormSubmissions")
+        .WithSummary("Retrieves the authenticated user's drafts and submitted requests with live workflow status.");
+
         formsGroup.MapGet("/{id}", async (string id, IMessageBus bus, CancellationToken ct) =>
         {
             var result = await bus.InvokeAsync<SmartFormDto?>(new GetSmartFormByIdQuery(id), ct);
@@ -88,6 +112,12 @@ public static class SmartFormEndpoints
                 var created = await bus.InvokeAsync<SmartFormDto>(command with { PublishedBy = publishedBy }, ct);
                 return Results.Created($"/api/smartforms/{created.Id}", created);
             }
+            catch (CyclicFormRuleException ex)
+            {
+                return Results.Json(
+                    new { code = CyclicFormRuleException.ErrorCode, error = ex.Message, cycle = ex.CyclePath },
+                    statusCode: StatusCodes.Status422UnprocessableEntity);
+            }
             catch (SmartFormVersionImmutableException ex)
             {
                 return Results.Json(
@@ -103,7 +133,7 @@ public static class SmartFormEndpoints
                 return ConcurrencyConflict("The SmartForm was modified by another user. Reload and retry.");
             }
         })
-        .RequireAuthorization("DesignerOrAdmin")
+        .RequireAuthorization("designs.write")
         .WithName("CreateSmartForm")
         .WithSummary("Creates a SmartForm schema with initial version 1 (Draft by default, or Published when publishImmediately=true).");
 
@@ -125,6 +155,12 @@ public static class SmartFormEndpoints
                 var updated = await bus.InvokeAsync<SmartFormDto?>(command with { Id = id }, ct);
                 return updated != null ? Results.Ok(updated) : Results.NotFound();
             }
+            catch (CyclicFormRuleException ex)
+            {
+                return Results.Json(
+                    new { code = CyclicFormRuleException.ErrorCode, error = ex.Message, cycle = ex.CyclePath },
+                    statusCode: StatusCodes.Status422UnprocessableEntity);
+            }
             catch (SmartFormVersionImmutableException ex)
             {
                 return Results.Json(
@@ -140,7 +176,7 @@ public static class SmartFormEndpoints
                 return ConcurrencyConflict($"SmartForm '{id}' was modified by another user. Reload and retry.");
             }
         })
-        .RequireAuthorization("DesignerOrAdmin")
+        .RequireAuthorization("designs.write")
         .WithName("UpdateSmartForm")
         .WithSummary("Updates the current Draft version (or creates a new Draft version if the latest version is Published).");
 
@@ -157,6 +193,12 @@ public static class SmartFormEndpoints
             {
                 var published = await bus.InvokeAsync<SmartFormDto?>(new PublishSmartFormCommand(id, publishedBy), ct);
                 return published != null ? Results.Ok(published) : Results.NotFound();
+            }
+            catch (CyclicFormRuleException ex)
+            {
+                return Results.Json(
+                    new { code = CyclicFormRuleException.ErrorCode, error = ex.Message, cycle = ex.CyclePath },
+                    statusCode: StatusCodes.Status422UnprocessableEntity);
             }
             catch (SmartFormVersionImmutableException ex)
             {
@@ -175,7 +217,7 @@ public static class SmartFormEndpoints
                 return ConcurrencyConflict($"SmartForm '{id}' was modified concurrently during publish. Reload and retry.");
             }
         })
-        .RequireAuthorization("DesignerOrAdmin")
+        .RequireAuthorization("designs.write")
         .WithName("PublishSmartForm")
         .WithSummary("Publishes the current Draft SmartFormVersion, archives any previous Published version, and activates the new version.");
 
@@ -202,7 +244,7 @@ public static class SmartFormEndpoints
             var deleted = await bus.InvokeAsync<bool>(new DeleteSmartFormCommand(id), ct);
             return deleted ? Results.NoContent() : Results.NotFound();
         })
-        .RequireAuthorization("DesignerOrAdmin")
+        .RequireAuthorization("designs.write")
         .WithName("DeleteSmartForm")
         .WithSummary("Deletes a SmartForm definition and its submissions.");
 
@@ -223,9 +265,60 @@ public static class SmartFormEndpoints
                 return Results.NotFound(new { error = ex.Message });
             }
         })
-        .RequireAuthorization("DesignerOrAdmin")
+        .RequireAuthorization("designs.write")
         .WithName("GenerateSmartFormFromObject")
         .WithSummary("Auto-generates a SmartForm schema from an existing SmartObject in one click.");
+
+        formsGroup.MapPost("/{id}/drafts", async (
+            string id,
+            SaveSmartFormDraftRequest request,
+            ClaimsPrincipal principal,
+            IMessageBus bus,
+            CancellationToken ct) =>
+        {
+            var caller = ExtractCallerIdentity(principal);
+            if (string.IsNullOrWhiteSpace(caller.CurrentUserId))
+            {
+                return Results.Unauthorized();
+            }
+
+            try
+            {
+                var result = await bus.InvokeAsync<SaveSmartFormDraftResult>(
+                    new SaveSmartFormDraftCommand(
+                        id,
+                        caller.CurrentUserId,
+                        request.Data ?? new Dictionary<string, object?>(),
+                        request.DraftId),
+                    ct);
+
+                return result.Created
+                    ? Results.Created($"/api/smartforms/{id}/drafts/{result.Submission.Id}", result.Submission)
+                    : Results.Ok(result.Submission);
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return Results.Json(
+                    new { code = "FORBIDDEN", error = ex.Message },
+                    statusCode: StatusCodes.Status403Forbidden);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Json(
+                    new { code = "DRAFT_ALREADY_SUBMITTED", error = ex.Message },
+                    statusCode: StatusCodes.Status409Conflict);
+            }
+            catch (SmartFormValidationFailedException ex)
+            {
+                return Results.BadRequest(new { code = ex.ErrorCode, error = ex.Message });
+            }
+        })
+        .WithName("SaveSmartFormDraft")
+        .WithSummary("Saves or updates a draft SmartForm submission for the authenticated user without triggering the workflow.");
 
         formsGroup.MapPost("/{id}/submit", async (
             string id,
@@ -269,7 +362,8 @@ public static class SmartFormEndpoints
                 userEmail,
                 request.Data ?? new Dictionary<string, object?>(),
                 idempotencyKey,
-                request.StartLinkedWorkflow);
+                request.StartLinkedWorkflow,
+                request.DraftId);
 
             // Validation, idempotency check, persistence and workflow start all run inside ONE
             // transactional handler. Errors are mapped explicitly - nothing is swallowed.
@@ -286,6 +380,12 @@ public static class SmartFormEndpoints
                 catch (KeyNotFoundException ex)
                 {
                     return Results.NotFound(new { error = ex.Message });
+                }
+                catch (UnauthorizedAccessException ex)
+                {
+                    return Results.Json(
+                        new { code = "FORBIDDEN", error = ex.Message },
+                        statusCode: StatusCodes.Status403Forbidden);
                 }
                 catch (SmartFormNotPublishedException ex)
                 {
@@ -310,6 +410,12 @@ public static class SmartFormEndpoints
                 {
                     return Results.Json(
                         new { code = IdempotencyKeyConflictException.ErrorCode, error = ex.Message },
+                        statusCode: StatusCodes.Status409Conflict);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    return Results.Json(
+                        new { code = "DRAFT_ALREADY_SUBMITTED", error = ex.Message },
                         statusCode: StatusCodes.Status409Conflict);
                 }
                 catch (DbUpdateConcurrencyException)

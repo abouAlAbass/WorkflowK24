@@ -22,6 +22,7 @@ public class SmartFormEntity
     /// or the current Draft version when no version has been published yet.
     /// </summary>
     public string FieldsJson { get; private set; } = "[]";
+    public string RulesJson { get; private set; } = "[]";
     public int SubmissionsCount { get; private set; }
 
     public string? ActivePublishedVersionId { get; private set; }
@@ -51,7 +52,8 @@ public class SmartFormEntity
         string? linkedWorkflowKey = null,
         string status = "Draft",
         bool publishImmediately = false,
-        string? publishedBy = null)
+        string? publishedBy = null,
+        string? rulesJson = null)
     {
         Id = string.IsNullOrWhiteSpace(id) ? $"form-{Guid.NewGuid():N}" : id;
         Name = !string.IsNullOrWhiteSpace(name) ? name : throw new ArgumentException("Name is required", nameof(name));
@@ -59,6 +61,7 @@ public class SmartFormEntity
         Description = description ?? string.Empty;
         Category = !string.IsNullOrWhiteSpace(category) ? category : "General";
         FieldsJson = !string.IsNullOrWhiteSpace(fieldsJson) ? fieldsJson : "[]";
+        RulesJson = !string.IsNullOrWhiteSpace(rulesJson) ? rulesJson : "[]";
         LinkedSmartObjectId = string.IsNullOrWhiteSpace(linkedSmartObjectId) ? null : linkedSmartObjectId;
         LinkedWorkflowKey = string.IsNullOrWhiteSpace(linkedWorkflowKey) ? null : linkedWorkflowKey;
         CreatedAt = DateTime.UtcNow;
@@ -71,7 +74,8 @@ public class SmartFormEntity
             fieldsJson: FieldsJson,
             status: startPublished ? SmartFormVersionStatus.Published : SmartFormVersionStatus.Draft,
             publishedBy: startPublished ? (publishedBy ?? "system") : null,
-            publishedAt: startPublished ? CreatedAt : null);
+            publishedAt: startPublished ? CreatedAt : null,
+            rulesJson: RulesJson);
 
         _versions.Add(initialVersion);
         LatestVersionNumber = 1;
@@ -122,7 +126,8 @@ public class SmartFormEntity
         string category,
         string? fieldsJson,
         string? linkedSmartObjectId,
-        string? linkedWorkflowKey)
+        string? linkedWorkflowKey,
+        string? rulesJson = null)
     {
         Title = !string.IsNullOrWhiteSpace(title) ? title : Title;
         Description = description ?? Description;
@@ -135,9 +140,9 @@ public class SmartFormEntity
 
         if (existingDraft != null)
         {
-            if (!string.IsNullOrWhiteSpace(fieldsJson))
+            if (!string.IsNullOrWhiteSpace(fieldsJson) || rulesJson != null)
             {
-                existingDraft.UpdateFields(fieldsJson);
+                existingDraft.UpdateFields(fieldsJson, rulesJson);
             }
             targetDraft = existingDraft;
         }
@@ -145,15 +150,19 @@ public class SmartFormEntity
         {
             int nextNumber = Math.Max(LatestVersionNumber, _versions.Count > 0 ? _versions.Max(v => v.VersionNumber) : 0) + 1;
             string effectiveFields = !string.IsNullOrWhiteSpace(fieldsJson) ? fieldsJson : FieldsJson;
-            targetDraft = new SmartFormVersion(Id, nextNumber, effectiveFields, SmartFormVersionStatus.Draft);
+            string effectiveRules = rulesJson != null
+                ? (string.IsNullOrWhiteSpace(rulesJson) ? "[]" : rulesJson)
+                : RulesJson;
+            targetDraft = new SmartFormVersion(Id, nextNumber, effectiveFields, SmartFormVersionStatus.Draft, rulesJson: effectiveRules);
             _versions.Add(targetDraft);
             LatestVersionNumber = nextNumber;
         }
 
-        // Backward compatibility: FieldsJson reflects the active Published version if one exists,
+        // Backward compatibility: FieldsJson & RulesJson reflect the active Published version if one exists,
         // otherwise the current Draft version.
         var activePublished = GetActivePublishedVersion();
         FieldsJson = activePublished != null ? activePublished.FieldsJson : targetDraft.FieldsJson;
+        RulesJson = activePublished != null ? activePublished.RulesJson : targetDraft.RulesJson;
         Status = activePublished != null ? "Published" : "Draft";
 
         Version++;
@@ -163,7 +172,7 @@ public class SmartFormEntity
 
     /// <summary>
     /// Publishes the current Draft version, archives any previously Published version,
-    /// and updates ActivePublishedVersionId and FieldsJson.
+    /// and updates ActivePublishedVersionId, FieldsJson, and RulesJson.
     /// </summary>
     public SmartFormVersion PublishDraft(string publishedBy)
     {
@@ -181,6 +190,7 @@ public class SmartFormEntity
         draft.Publish(publishedBy);
         ActivePublishedVersionId = draft.Id;
         FieldsJson = draft.FieldsJson;
+        RulesJson = draft.RulesJson;
         Status = "Published";
         Version++;
         UpdatedAt = DateTime.UtcNow;
@@ -204,7 +214,8 @@ public class SmartFormEntity
             fieldsJson: FieldsJson,
             status: SmartFormVersionStatus.Published,
             publishedBy: publishedBy,
-            publishedAt: UpdatedAt == default ? DateTime.UtcNow : UpdatedAt);
+            publishedAt: UpdatedAt == default ? DateTime.UtcNow : UpdatedAt,
+            rulesJson: RulesJson);
 
         _versions.Add(v1);
         LatestVersionNumber = 1;

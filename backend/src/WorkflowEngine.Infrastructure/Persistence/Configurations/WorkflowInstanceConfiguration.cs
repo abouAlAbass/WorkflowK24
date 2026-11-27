@@ -112,11 +112,25 @@ public class WorkflowInstanceConfiguration : IEntityTypeConfiguration<WorkflowIn
             .HasConstraintName("FK_NodeExecutions_Instances")
             .OnDelete(DeleteBehavior.Cascade);
 
+        builder.HasMany(i => i.Tokens)
+            .WithOne(t => t.Instance)
+            .HasForeignKey(t => t.InstanceId)
+            .HasConstraintName("FK_WorkflowTokens_Instances")
+            .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasMany(i => i.JoinStates)
+            .WithOne(j => j.Instance)
+            .HasForeignKey(j => j.InstanceId)
+            .HasConstraintName("FK_JoinStates_Instances")
+            .OnDelete(DeleteBehavior.Cascade);
+
         builder.Navigation(i => i.Tasks).UsePropertyAccessMode(PropertyAccessMode.Field);
         builder.Navigation(i => i.Errors).UsePropertyAccessMode(PropertyAccessMode.Field);
         builder.Navigation(i => i.AuditLogs).UsePropertyAccessMode(PropertyAccessMode.Field);
         builder.Navigation(i => i.Events).UsePropertyAccessMode(PropertyAccessMode.Field);
         builder.Navigation(i => i.NodeExecutions).UsePropertyAccessMode(PropertyAccessMode.Field);
+        builder.Navigation(i => i.Tokens).UsePropertyAccessMode(PropertyAccessMode.Field);
+        builder.Navigation(i => i.JoinStates).UsePropertyAccessMode(PropertyAccessMode.Field);
 
         builder.HasIndex(i => new { i.Status, i.CurrentNodeId })
             .HasDatabaseName("IX_WorkflowInstances_Status_CurrentNode");

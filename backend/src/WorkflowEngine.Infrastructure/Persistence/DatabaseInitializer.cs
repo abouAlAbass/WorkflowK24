@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using WorkflowEngine.Domain.Entities;
@@ -13,6 +14,9 @@ namespace WorkflowEngine.Infrastructure.Persistence;
 public static class DatabaseInitializer
 {
     public const string DefaultSeedPassword = "Password123!";
+    public const string PrimaryAdminRole = "Administrator";
+    public const string DefaultPrimaryAdminEmail = "admin@tamam.local";
+    public const string DefaultPrimaryAdminPassword = "Admin@Tamam2026!";
 
     public static async Task InitializeDatabaseAsync(this IServiceProvider serviceProvider)
     {
@@ -44,7 +48,9 @@ public static class DatabaseInitializer
                     logger.LogInformation("Database schema verified and created successfully.");
                 }
 
+                var configuration = scope.ServiceProvider.GetRequiredService<IConfiguration>();
                 await SeedDefaultUsersAsync(context, logger);
+                await SeedPrimaryAdminAsync(context, configuration, logger);
                 await SeedDefaultSettingsAsync(context, logger);
                 await SeedDefaultSmartFormsAsync(context, logger);
             }
@@ -62,12 +68,13 @@ public static class DatabaseInitializer
 
         var seedUsers = new[]
         {
-            new SystemUser("usr-1", "Adel Sebti", "a.sebti@enterprise.internal", "Administrator", "IT & Security", "Active", "/avatars/user-2.svg", defaultHash),
+            new SystemUser("usr-1", "Adel Sebti", "a.sebti@enterprise.internal", "Process Manager", "IT & Security", "Active", "/avatars/user-2.svg", defaultHash),
             new SystemUser("usr-2", "Karim Khmissi", "k.khmissi@enterprise.internal", "Workflow Designer", "Operations", "Active", "/avatars/user-3.svg", defaultHash),
             new SystemUser("usr-3", "Mohamed Fetni", "m.fetni@enterprise.internal", "Process Manager", "Finance", "Active", "/avatars/user-5.svg", defaultHash),
             new SystemUser("usr-4", "Yacine Benali", "y.benali@enterprise.internal", "End User", "Legal", "Inactive", "/avatars/user-1.svg", defaultHash),
             new SystemUser("usr-5", "Adel Sebti", "adel.sebti@corp.internal", "BPM Administrator", "IT & Security", "Active", "/avatars/user-2.svg", defaultHash),
-            new SystemUser("usr-6", "Karim Khmissi", "karim.khmissi@corp.internal", "Process Manager", "Finance Managers", "Active", "/avatars/user-3.svg", defaultHash)
+            new SystemUser("usr-6", "Karim Khmissi", "karim.khmissi@corp.internal", "Process Manager", "Finance Managers", "Active", "/avatars/user-3.svg", defaultHash),
+            new SystemUser("usr-designer", "Studio Designer", "designer@tamam.local", Roles.Designer, "Design", "Active", "/avatars/user-3.svg", defaultHash)
         };
 
         var existingEmails = await context.SystemUsers
@@ -102,6 +109,43 @@ public static class DatabaseInitializer
             await context.SaveChangesAsync();
             logger.LogInformation("Seeded/updated default SystemUsers with PBKDF2 credentials.");
         }
+    }
+
+    /// <summary>
+    /// Ensures exactly ONE principal administrator (role "Administrator") exists. Only this account may
+    /// create/delete workflow definitions and create/delete users. Credentials are configurable via
+    /// Seed:PrimaryAdmin:{Email,Password,Name}. Any other "Administrator" is demoted to "BPM Administrator".
+    /// </summary>
+    private static async Task SeedPrimaryAdminAsync(WorkflowEngineDbContext context, IConfiguration configuration, ILogger logger)
+    {
+        string email = (configuration["Seed:PrimaryAdmin:Email"] ?? DefaultPrimaryAdminEmail).Trim().ToLowerInvariant();
+        string password = configuration["Seed:PrimaryAdmin:Password"] ?? DefaultPrimaryAdminPassword;
+        string name = configuration["Seed:PrimaryAdmin:Name"] ?? "Principal Administrator";
+
+        var primary = await context.SystemUsers.FirstOrDefaultAsync(u => u.Email == email);
+        if (primary == null)
+        {
+            primary = new SystemUser(
+                "usr-primary-admin", name, email, PrimaryAdminRole, "Administration", "Active",
+                "/avatars/user-1.svg", PasswordHasher.HashPassword(password));
+            context.SystemUsers.Add(primary);
+            logger.LogWarning("Created principal administrator '{Email}'. Change its password after first login.", email);
+        }
+        else if (!string.Equals(primary.Role, PrimaryAdminRole, StringComparison.Ordinal) ||
+                 !string.Equals(primary.Status, "Active", StringComparison.OrdinalIgnoreCase))
+        {
+            primary.UpdateProfile(primary.Name, PrimaryAdminRole, primary.Group, "Active");
+        }
+
+        var otherAdmins = await context.SystemUsers
+            .Where(u => u.Role == PrimaryAdminRole && u.Email != email)
+            .ToListAsync();
+        foreach (var other in otherAdmins)
+        {
+            other.UpdateProfile(other.Name, "BPM Administrator", other.Group, other.Status);
+        }
+
+        await context.SaveChangesAsync();
     }
 
     private static async Task SeedDefaultSettingsAsync(WorkflowEngineDbContext context, ILogger logger)

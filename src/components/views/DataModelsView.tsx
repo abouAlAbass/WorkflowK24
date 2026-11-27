@@ -14,11 +14,15 @@ import {
   X, 
   AlertCircle, 
   Sparkles,
-  FileText
+  FileText,
+  Download,
+  EyeOff
 } from 'lucide-react';
 import { useWorkflowStore } from '../../hooks/useWorkflowStore';
 import { useSmartFormStore } from '../../store/useSmartFormStore';
 import type { SmartObjectField, SmartObjectCategory, SmartObjectRecord } from '../../types/workflow';
+import { ImportSmartObjectWizardModal } from '../modals/ImportSmartObjectWizardModal';
+import { SchemaSyncDiffModal } from '../modals/SchemaSyncDiffModal';
 
 export const DataModelsView: React.FC = () => {
   const { 
@@ -33,6 +37,7 @@ export const DataModelsView: React.FC = () => {
     addSmartObjectRecord,
     updateSmartObjectRecord,
     deleteSmartObjectRecord,
+    syncDataFromRepository,
     setCurrentTab
   } = useWorkflowStore();
   const generateFromSmartObject = useSmartFormStore((s) => s.generateFromSmartObject);
@@ -44,6 +49,8 @@ export const DataModelsView: React.FC = () => {
 
   // Modals state
   const [isCreateEntityOpen, setIsCreateEntityOpen] = useState(false);
+  const [isImportWizardOpen, setIsImportWizardOpen] = useState(false);
+  const [isSyncDiffOpen, setIsSyncDiffOpen] = useState(false);
   const [isEditEntityOpen, setIsEditEntityOpen] = useState(false);
   const [isDeleteEntityConfirmOpen, setIsDeleteEntityConfirmOpen] = useState(false);
   const [isAddFieldOpen, setIsAddFieldOpen] = useState(false);
@@ -265,6 +272,16 @@ export const DataModelsView: React.FC = () => {
             </button>
           )}
 
+          <button
+            type="button"
+            onClick={() => setIsImportWizardOpen(true)}
+            data-testid="import-from-connection-btn"
+            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md cursor-pointer transition-all active:scale-95"
+          >
+            <Download className="w-4 h-4" />
+            <span>Importer depuis une Connexion</span>
+          </button>
+
           <button 
             onClick={openCreateEntity}
             data-testid="create-smartobject-btn"
@@ -386,6 +403,18 @@ export const DataModelsView: React.FC = () => {
 
                   <div className="h-4 w-px bg-slate-200 dark:bg-slate-700 mx-1 hidden sm:block" />
 
+                  {selectedSO.sourceConnectionId && (
+                    <button
+                      type="button"
+                      onClick={() => setIsSyncDiffOpen(true)}
+                      data-testid="sync-smartobject-schema-btn"
+                      className="px-3 py-1.5 rounded-xl border border-emerald-200 dark:border-emerald-800 bg-emerald-50/70 dark:bg-emerald-950/40 text-xs font-bold flex items-center gap-1.5 shadow-2xs hover:bg-emerald-100 dark:hover:bg-emerald-900/50 cursor-pointer text-emerald-700 dark:text-emerald-300"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span>Actualiser depuis la source</span>
+                    </button>
+                  )}
+
                   <button className="px-3 py-1.5 rounded-xl border border-[#E2E8F0] dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-bold flex items-center gap-1.5 shadow-2xs text-slate-700 dark:text-slate-200">
                     <Server className="w-3.5 h-3.5 text-[#2563EB]" />
                     <span>Connector Config</span>
@@ -462,7 +491,17 @@ export const DataModelsView: React.FC = () => {
                         {selectedSO.fields.map((f, i) => (
                           <tr key={i} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
                             <td className="p-3 font-mono font-extrabold text-[#0F172A] dark:text-slate-100">
-                              {f.name}
+                              <span className="inline-flex items-center gap-1.5">
+                                {f.name}
+                                {f.masked && (
+                                  <span
+                                    title="Champ masqué dans les sorties d'exécution et ViewFlow"
+                                    className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-50 dark:bg-rose-950 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800"
+                                  >
+                                    <EyeOff className="w-2.5 h-2.5" /> Masqué
+                                  </span>
+                                )}
+                              </span>
                             </td>
                             <td className="p-3 font-mono text-[11px] text-[#2563EB] dark:text-blue-400 font-bold">
                               {f.type}
@@ -651,6 +690,24 @@ export const DataModelsView: React.FC = () => {
       </div>
 
       {/* MODAL 1: CREATE SMARTOBJECT ENTITY */}
+      <ImportSmartObjectWizardModal
+        isOpen={isImportWizardOpen}
+        onClose={() => setIsImportWizardOpen(false)}
+        onGenerated={async (created) => {
+          await syncDataFromRepository();
+          setSelectedSOId(created.id);
+        }}
+      />
+
+      <SchemaSyncDiffModal
+        isOpen={isSyncDiffOpen}
+        smartObject={selectedSO ?? null}
+        onClose={() => setIsSyncDiffOpen(false)}
+        onApplied={async () => {
+          await syncDataFromRepository();
+        }}
+      />
+
       {isCreateEntityOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
           <div className="bg-white dark:bg-[#1E293B] border border-slate-200 dark:border-slate-700 rounded-3xl max-w-lg w-full p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-150">

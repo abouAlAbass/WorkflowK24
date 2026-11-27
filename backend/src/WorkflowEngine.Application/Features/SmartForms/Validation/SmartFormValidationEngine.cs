@@ -14,34 +14,59 @@ public sealed class SmartFormValidationEngine : ISmartFormValidationEngine
 
     public SmartFormValidationResult ValidateSubmission(
         string fieldsJson,
-        IReadOnlyDictionary<string, object?>? submittedData)
+        IReadOnlyDictionary<string, object?>? submittedData,
+        string? rulesJson = null)
     {
-        return ValidateInternal(fieldsJson, submittedData, existingData: null, isPatch: false);
+        return ValidateInternal(fieldsJson, rulesJson, submittedData, existingData: null, isPatch: false);
     }
 
     public SmartFormValidationResult ValidatePatch(
         string fieldsJson,
         IReadOnlyDictionary<string, object?>? formPatch,
-        IReadOnlyDictionary<string, object?>? existingData = null)
+        IReadOnlyDictionary<string, object?>? existingData = null,
+        string? rulesJson = null)
     {
-        return ValidateInternal(fieldsJson, formPatch, existingData, isPatch: true);
+        return ValidateInternal(fieldsJson, rulesJson, formPatch, existingData, isPatch: true);
     }
 
     private static SmartFormValidationResult ValidateInternal(
         string fieldsJson,
+        string? rulesJson,
         IReadOnlyDictionary<string, object?>? submittedData,
         IReadOnlyDictionary<string, object?>? existingData,
         bool isPatch)
     {
         var fields = DeserializeFields(fieldsJson);
+        var rules = DeserializeRules(rulesJson);
         var dataFields = fields
             .Where(f => !string.Equals(f.Type, "section", StringComparison.OrdinalIgnoreCase))
             .ToList();
 
+        var fieldByName = new Dictionary<string, SmartFormFieldDto>(StringComparer.OrdinalIgnoreCase);
+        foreach (var f in dataFields)
+        {
+            fieldByName[f.Name] = f;
+        }
+
+        // Analyze DAG and verify acyclicity
+        var graph = FormRuleDependencyGraph.Analyze(fields, rules);
+        if (graph.HasCycle)
+        {
+            string cycleText = string.Join(" -> ", graph.CyclePath);
+            return new SmartFormValidationResult(
+                IsValid: false,
+                SanitizedData: new Dictionary<string, object?>(StringComparer.Ordinal),
+                Errors: new Dictionary<string, string[]>(StringComparer.Ordinal)
+                {
+                    ["_rules"] = [$"{CyclicFormRuleException.ErrorCode}: Circular dependency detected ({cycleText})."]
+                },
+                ErrorCode: CyclicFormRuleException.ErrorCode);
+        }
+
         var normalizedIncoming = NormalizeDictionary(submittedData);
         var normalizedExisting = NormalizeDictionary(existingData);
 
-        // Build evaluation state for visibility rules (existing/defaults overlaid with incoming values)
+        // Build evaluation state (existing/defaults overlaid with incoming values)
         var evalState = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
         foreach (var f in dataFields)
         {
@@ -51,7 +76,7 @@ public sealed class SmartFormValidationEngine : ISmartFormValidationEngine
             }
             else if (f.DefaultValue != null)
             {
-                evalState[f.Name] = f.DefaultValue;
+                evalState[f.Name] = CoerceDefaultValue(f);
             }
         }
 
@@ -60,25 +85,136 @@ public sealed class SmartFormValidationEngine : ISmartFormValidationEngine
             evalState[kv.Key] = kv.Value;
         }
 
-        // 1. Evaluate visibility rules deterministically (6 operators matching SmartFormRenderer.tsx)
-        var visibleFields = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var field in dataFields)
+        // Group rules by targetField
+        var rulesByTarget = new Dictionary<string, List<FormRuleDto>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var rule in rules)
         {
-            if (EvaluateFieldVisibility(field.VisibilityRule, evalState))
+            if (string.IsNullOrWhiteSpace(rule.TargetField)) continue;
+            if (!rulesByTarget.TryGetValue(rule.TargetField, out var list))
             {
-                visibleFields.Add(field.Name);
+                list = new List<FormRuleDto>();
+                rulesByTarget[rule.TargetField] = list;
             }
-            else
+            list.Add(rule);
+        }
+
+        // 1. Evaluate all rules in DAG topological order
+        var visibleFields = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var effectiveRequired = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var effectiveReadOnly = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var computedValues = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+
+        // Build ordered field list: topological order first, then any remaining fields
+        var orderedFields = new List<SmartFormFieldDto>(dataFields.Count);
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var nodeName in graph.TopologicalOrder)
+        {
+            if (fieldByName.TryGetValue(nodeName, out var f) && seen.Add(f.Name))
             {
-                // Ensure chained visibility rules see hidden parent fields as empty
+                orderedFields.Add(f);
+            }
+        }
+        foreach (var f in dataFields)
+        {
+            if (seen.Add(f.Name))
+            {
+                orderedFields.Add(f);
+            }
+        }
+
+        foreach (var field in orderedFields)
+        {
+            rulesByTarget.TryGetValue(field.Name, out var fieldRules);
+
+            // 1a. Visibility: legacy visibilityRule AND any JSONLogic "visible" rules
+            bool isVisible = EvaluateFieldVisibility(field.VisibilityRule, evalState);
+            if (isVisible && fieldRules != null)
+            {
+                foreach (var visRule in fieldRules.Where(r => string.Equals(r.Effect, "visible", StringComparison.OrdinalIgnoreCase)))
+                {
+                    if (visRule.ConditionJsonLogic is not null &&
+                        !JsonLogicEvaluator.EvaluateBool(visRule.ConditionJsonLogic, evalState))
+                    {
+                        isVisible = false;
+                        break;
+                    }
+                }
+            }
+
+            if (!isVisible)
+            {
+                // Ensure downstream rules see hidden fields as empty
                 evalState[field.Name] = string.Empty;
+                continue;
+            }
+
+            visibleFields.Add(field.Name);
+
+            // 1b. Computed value rules (server-authoritative recomputation)
+            if (fieldRules != null)
+            {
+                foreach (var compRule in fieldRules.Where(r => string.Equals(r.Effect, "computedValue", StringComparison.OrdinalIgnoreCase)))
+                {
+                    bool condPassed = compRule.ConditionJsonLogic is null ||
+                                      compRule.ConditionJsonLogic.Value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined ||
+                                      JsonLogicEvaluator.EvaluateBool(compRule.ConditionJsonLogic, evalState);
+                    if (condPassed && compRule.ExpressionJsonLogic is not null)
+                    {
+                        var computed = JsonLogicEvaluator.Evaluate(compRule.ExpressionJsonLogic, evalState);
+                        var coerced = CoerceComputedValue(field, computed);
+                        computedValues[field.Name] = coerced;
+                        evalState[field.Name] = coerced;
+                    }
+                }
+            }
+
+            // 1c. Conditional required rules
+            bool isReq = field.Required;
+            if (!isReq && fieldRules != null)
+            {
+                foreach (var reqRule in fieldRules.Where(r => string.Equals(r.Effect, "required", StringComparison.OrdinalIgnoreCase)))
+                {
+                    bool condPassed = reqRule.ConditionJsonLogic is null ||
+                                      reqRule.ConditionJsonLogic.Value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined ||
+                                      JsonLogicEvaluator.EvaluateBool(reqRule.ConditionJsonLogic, evalState);
+                    if (condPassed)
+                    {
+                        isReq = true;
+                        break;
+                    }
+                }
+            }
+            if (isReq)
+            {
+                effectiveRequired.Add(field.Name);
+            }
+
+            // 1d. Conditional readOnly rules
+            bool isRo = field.ReadOnly;
+            if (!isRo && fieldRules != null)
+            {
+                foreach (var roRule in fieldRules.Where(r => string.Equals(r.Effect, "readOnly", StringComparison.OrdinalIgnoreCase)))
+                {
+                    bool condPassed = roRule.ConditionJsonLogic is null ||
+                                      roRule.ConditionJsonLogic.Value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined ||
+                                      JsonLogicEvaluator.EvaluateBool(roRule.ConditionJsonLogic, evalState);
+                    if (condPassed)
+                    {
+                        isRo = true;
+                        break;
+                    }
+                }
+            }
+            if (isRo)
+            {
+                effectiveReadOnly.Add(field.Name);
             }
         }
 
         var errors = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
         string? primaryErrorCode = null;
 
-        // 2 & 3. Strip hidden/undeclared phantom keys AND protect readOnly fields from modification
+        // 2 & 3. Strip hidden/undeclared phantom keys, apply server-recomputed values, AND protect readOnly fields
         var sanitized = new Dictionary<string, object?>(StringComparer.Ordinal);
 
         foreach (var field in dataFields)
@@ -86,7 +222,20 @@ public sealed class SmartFormValidationEngine : ISmartFormValidationEngine
             bool isVisible = visibleFields.Contains(field.Name);
             bool wasSubmitted = normalizedIncoming.TryGetValue(field.Name, out object? rawSubmittedValue);
 
-            if (field.ReadOnly)
+            // Strip hidden fields (phantom values) from final dictionary
+            if (!isVisible)
+            {
+                continue;
+            }
+
+            // Server-authoritative computedValue: always ignore client-supplied value and write computed result
+            if (computedValues.TryGetValue(field.Name, out var serverComputed))
+            {
+                sanitized[field.Name] = serverComputed;
+                continue;
+            }
+
+            if (effectiveReadOnly.Contains(field.Name))
             {
                 object? baseline = isPatch && normalizedExisting.TryGetValue(field.Name, out var prevVal)
                     ? prevVal
@@ -102,17 +251,11 @@ public sealed class SmartFormValidationEngine : ISmartFormValidationEngine
                 }
 
                 // On full submission, keep default value if defined and visible; on patch, never mutate read-only fields
-                if (!isPatch && isVisible && !string.IsNullOrWhiteSpace(field.DefaultValue))
+                if (!isPatch && !string.IsNullOrWhiteSpace(field.DefaultValue))
                 {
                     sanitized[field.Name] = CoerceDefaultValue(field);
                 }
 
-                continue;
-            }
-
-            // Strip hidden fields (phantom values) from final dictionary
-            if (!isVisible)
-            {
                 continue;
             }
 
@@ -125,15 +268,17 @@ public sealed class SmartFormValidationEngine : ISmartFormValidationEngine
         // 4 & 5. Validate required visible fields + data types & constraints
         foreach (var field in dataFields)
         {
-            if (field.ReadOnly || !visibleFields.Contains(field.Name))
+            if (effectiveReadOnly.Contains(field.Name) ||
+                computedValues.ContainsKey(field.Name) ||
+                !visibleFields.Contains(field.Name))
             {
                 continue;
             }
 
             bool presentInSanitized = sanitized.TryGetValue(field.Name, out object? val);
 
-            // Step 4: Required check (only when field is visible)
-            if (field.Required)
+            // Step 4: Required check (static or conditional, only when field is visible)
+            if (effectiveRequired.Contains(field.Name))
             {
                 if (!isPatch)
                 {
@@ -174,6 +319,42 @@ public sealed class SmartFormValidationEngine : ISmartFormValidationEngine
             SanitizedData: sanitized,
             Errors: new Dictionary<string, string[]>(StringComparer.Ordinal),
             ErrorCode: null);
+    }
+
+    private static object? CoerceComputedValue(SmartFormFieldDto field, object? computed)
+    {
+        if (computed == null) return null;
+        string type = field.Type?.Trim().ToLowerInvariant() ?? "text";
+
+        if ((type is "number" or "currency") && TryCoerceDecimal(computed, out decimal dec))
+        {
+            return JsonLogicEvaluator.NormalizeDecimal(dec);
+        }
+
+        if ((type is "checkbox" or "boolean") && TryCoerceBoolean(computed, out bool b))
+        {
+            return b;
+        }
+
+        return computed;
+    }
+
+    private static List<FormRuleDto> DeserializeRules(string? rulesJson)
+    {
+        if (string.IsNullOrWhiteSpace(rulesJson))
+        {
+            return new List<FormRuleDto>();
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<List<FormRuleDto>>(rulesJson, SchemaJsonOptions)
+                ?? new List<FormRuleDto>();
+        }
+        catch
+        {
+            return new List<FormRuleDto>();
+        }
     }
 
     public static bool EvaluateFieldVisibility(
@@ -318,6 +499,52 @@ public sealed class SmartFormValidationEngine : ISmartFormValidationEngine
                     AddError(errors, field.Name, $"Field '{field.Label}' must be a valid attachment metadata object.");
                 }
                 break;
+
+            case "peoplepicker":
+                if (value is string)
+                {
+                    break;
+                }
+                if (value is IDictionary<string, object?> userMap)
+                {
+                    bool hasUserId = userMap.TryGetValue("id", out var uid) && uid is string uidStr && !string.IsNullOrWhiteSpace(uidStr);
+                    bool hasEmail = userMap.TryGetValue("email", out var em) && em is string emStr && !string.IsNullOrWhiteSpace(emStr);
+                    if (!hasUserId && !hasEmail)
+                    {
+                        AddError(errors, field.Name, $"Field '{field.Label}' must reference a valid user.");
+                    }
+                }
+                else
+                {
+                    AddError(errors, field.Name, $"Field '{field.Label}' must be a valid user selection.");
+                }
+                break;
+
+            case "signature":
+                if (value is not string sigStr || string.IsNullOrWhiteSpace(sigStr))
+                {
+                    AddError(errors, field.Name, $"Field '{field.Label}' must be a valid signature payload.");
+                }
+                break;
+
+            case "lookup":
+                if (value is string)
+                {
+                    break;
+                }
+                if (value is IDictionary<string, object?> lookupMap)
+                {
+                    bool hasVal = lookupMap.TryGetValue("value", out var lv) && lv is not null && !string.IsNullOrWhiteSpace(lv.ToString());
+                    if (!hasVal)
+                    {
+                        AddError(errors, field.Name, $"Field '{field.Label}' must contain a valid lookup value.");
+                    }
+                }
+                else
+                {
+                    AddError(errors, field.Name, $"Field '{field.Label}' must be a valid lookup selection.");
+                }
+                break;
         }
     }
 
@@ -385,6 +612,22 @@ public sealed class SmartFormValidationEngine : ISmartFormValidationEngine
                         else
                         {
                             cleanRow[col.Name] = dStr;
+                        }
+                        break;
+
+                    case "select":
+                        if (cellVal is not string selStr)
+                        {
+                            AddError(errors, field.Name, $"Row {rowIdx + 1}: column '{col.Label}' must be a valid selection.");
+                        }
+                        else if (col.Options is { Count: > 0 } &&
+                                 !col.Options.Any(opt => string.Equals(opt, selStr, StringComparison.Ordinal)))
+                        {
+                            AddError(errors, field.Name, $"Row {rowIdx + 1}: value '{selStr}' is not an allowed option for '{col.Label}'.");
+                        }
+                        else
+                        {
+                            cleanRow[col.Name] = selStr;
                         }
                         break;
 

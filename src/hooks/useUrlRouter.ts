@@ -4,6 +4,7 @@ import { useWorkflowStore } from './useWorkflowStore';
 
 const VALID_TABS: NavigationTab[] = [
   'dashboard',
+  'portal',
   'designer',
   'smartforms',
   'instances',
@@ -79,7 +80,11 @@ export function useUrlRouter(): void {
 
     if (!initializedRef.current) {
       initializedRef.current = true;
-      if (window.location.pathname && window.location.pathname !== '/') {
+      if (
+        window.location.pathname &&
+        window.location.pathname !== '/' &&
+        window.location.pathname !== '/login/callback'
+      ) {
         applyCurrentLocation();
       }
     }

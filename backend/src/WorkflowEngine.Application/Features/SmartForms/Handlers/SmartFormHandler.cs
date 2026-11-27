@@ -26,7 +26,8 @@ public record CreateSmartFormCommand(
     [property: JsonPropertyName("fields")] List<SmartFormFieldDto>? Fields,
     [property: JsonPropertyName("expectedVersion")] int? ExpectedVersion = null,
     [property: JsonPropertyName("publishImmediately")] bool PublishImmediately = false,
-    [property: JsonIgnore] string? PublishedBy = null
+    [property: JsonIgnore] string? PublishedBy = null,
+    [property: JsonPropertyName("rules")] List<FormRuleDto>? Rules = null
 );
 
 public record UpdateSmartFormCommand(
@@ -38,7 +39,8 @@ public record UpdateSmartFormCommand(
     [property: JsonPropertyName("linkedWorkflowKey")] string? LinkedWorkflowKey,
     [property: JsonPropertyName("status")] string? Status,
     [property: JsonPropertyName("fields")] List<SmartFormFieldDto>? Fields,
-    [property: JsonPropertyName("expectedVersion")] int? ExpectedVersion = null
+    [property: JsonPropertyName("expectedVersion")] int? ExpectedVersion = null,
+    [property: JsonPropertyName("rules")] List<FormRuleDto>? Rules = null
 );
 
 public record PublishSmartFormCommand(string Id, string PublishedBy);
@@ -55,7 +57,25 @@ public record SubmitSmartFormCommand(
     string SubmittedBy,
     Dictionary<string, object?> Data,
     string? IdempotencyKey = null,
-    bool StartLinkedWorkflow = true
+    bool StartLinkedWorkflow = true,
+    string? DraftId = null
+);
+
+public record SaveSmartFormDraftCommand(
+    string SmartFormId,
+    string SubmittedBy,
+    Dictionary<string, object?> Data,
+    string? DraftId = null
+);
+
+public record SaveSmartFormDraftResult(
+    SmartFormSubmissionDto Submission,
+    bool Created
+);
+
+public record GetMySmartFormSubmissionsQuery(
+    string SubmittedBy,
+    string? AlternateUserId = null
 );
 
 public record GetSmartFormSubmissionsQuery(string SmartFormId);
@@ -127,6 +147,7 @@ public class SmartFormHandler
     private readonly ISmartFormValidationEngine _validationEngine;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IWorkflowInstanceStarter _workflowStarter;
+    private readonly IWorkflowInstanceRepository? _instanceRepository;
 
     public SmartFormHandler(
         ISmartFormRepository formRepository,
@@ -134,7 +155,8 @@ public class SmartFormHandler
         IBlobStorageService blobStorage,
         ISmartFormValidationEngine validationEngine,
         IUnitOfWork unitOfWork,
-        IWorkflowInstanceStarter workflowStarter)
+        IWorkflowInstanceStarter workflowStarter,
+        IWorkflowInstanceRepository? instanceRepository = null)
     {
         _formRepository = formRepository ?? throw new ArgumentNullException(nameof(formRepository));
         _smartObjectRepository = smartObjectRepository ?? throw new ArgumentNullException(nameof(smartObjectRepository));
@@ -142,6 +164,7 @@ public class SmartFormHandler
         _validationEngine = validationEngine ?? throw new ArgumentNullException(nameof(validationEngine));
         _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
         _workflowStarter = workflowStarter ?? throw new ArgumentNullException(nameof(workflowStarter));
+        _instanceRepository = instanceRepository;
     }
 
     public async Task<IReadOnlyList<SmartFormDto>> Handle(GetSmartFormsQuery _, CancellationToken ct)
@@ -161,7 +184,13 @@ public class SmartFormHandler
         string id = !string.IsNullOrWhiteSpace(command.Id) ? command.Id : $"form-{Guid.NewGuid():N}"[..20];
         string title = !string.IsNullOrWhiteSpace(command.Title) ? command.Title : command.Name;
         var fields = command.Fields ?? new List<SmartFormFieldDto>();
+        var rules = command.Rules ?? new List<FormRuleDto>();
+
+        // Reject circular dependencies in the rule DAG before persisting
+        FormRuleDependencyGraph.EnsureAcyclic(fields, rules);
+
         string fieldsJson = JsonSerializer.Serialize(fields);
+        string rulesJson = JsonSerializer.Serialize(rules);
 
         var existing = await _formRepository.GetByIdAsync(id, ct);
         if (existing != null)
@@ -174,7 +203,8 @@ public class SmartFormHandler
                 command.Category ?? "General",
                 fieldsJson,
                 command.LinkedSmartObjectId,
-                command.LinkedWorkflowKey);
+                command.LinkedWorkflowKey,
+                rulesJson);
 
             if (command.PublishImmediately)
             {
@@ -196,7 +226,8 @@ public class SmartFormHandler
             command.LinkedWorkflowKey,
             status: command.PublishImmediately ? "Published" : "Draft",
             publishImmediately: command.PublishImmediately,
-            publishedBy: command.PublishedBy);
+            publishedBy: command.PublishedBy,
+            rulesJson: rulesJson);
 
         await _formRepository.AddAsync(entity, ct);
         return MapToDto(entity);
@@ -209,8 +240,20 @@ public class SmartFormHandler
 
         EnsureExpectedVersion(existing, command.ExpectedVersion);
 
+        var baseDraft = existing.GetCurrentDraftVersion();
+        var effectiveFields = command.Fields
+            ?? DeserializeSmartFormFields(baseDraft?.FieldsJson ?? existing.FieldsJson);
+        var effectiveRules = command.Rules
+            ?? DeserializeFormRules(baseDraft?.RulesJson ?? existing.RulesJson);
+
+        // Reject circular dependencies in the rule DAG before persisting
+        FormRuleDependencyGraph.EnsureAcyclic(effectiveFields, effectiveRules);
+
         string? fieldsJson = command.Fields != null
             ? JsonSerializer.Serialize(command.Fields)
+            : null;
+        string? rulesJson = command.Rules != null
+            ? JsonSerializer.Serialize(command.Rules)
             : null;
 
         existing.UpdateDraft(
@@ -219,7 +262,8 @@ public class SmartFormHandler
             command.Category ?? existing.Category,
             fieldsJson,
             command.LinkedSmartObjectId ?? existing.LinkedSmartObjectId,
-            command.LinkedWorkflowKey ?? existing.LinkedWorkflowKey);
+            command.LinkedWorkflowKey ?? existing.LinkedWorkflowKey,
+            rulesJson);
 
         await _formRepository.UpdateAsync(existing, ct);
         return MapToDto(existing);
@@ -229,6 +273,14 @@ public class SmartFormHandler
     {
         var existing = await _formRepository.GetByIdAsync(command.Id, ct);
         if (existing == null) return null;
+
+        var draft = existing.GetCurrentDraftVersion();
+        if (draft != null)
+        {
+            FormRuleDependencyGraph.EnsureAcyclic(
+                DeserializeSmartFormFields(draft.FieldsJson),
+                DeserializeFormRules(draft.RulesJson));
+        }
 
         existing.PublishDraft(command.PublishedBy);
         await _formRepository.UpdateAsync(existing, ct);
@@ -264,7 +316,8 @@ public class SmartFormHandler
             DeserializeSmartFormFields(version.FieldsJson),
             version.PublishedAt,
             version.PublishedBy,
-            version.CreatedAt);
+            version.CreatedAt,
+            DeserializeFormRules(version.RulesJson));
     }
 
     public async Task<bool> Handle(DeleteSmartFormCommand command, CancellationToken ct)
@@ -407,8 +460,8 @@ public class SmartFormHandler
                 $"{SmartFormNotPublishedException.ErrorCode}: SmartForm '{form.Id}' has no Published version and cannot accept submissions.");
         }
 
-        // 3. Zero-Trust server validation against the active Published version schema
-        var validation = _validationEngine.ValidateSubmission(activeVersion.FieldsJson, command.Data);
+        // 3. Zero-Trust server validation against the active Published version schema & JSONLogic rules
+        var validation = _validationEngine.ValidateSubmission(activeVersion.FieldsJson, command.Data, activeVersion.RulesJson);
         if (!validation.IsValid)
         {
             throw new SmartFormValidationFailedException(
@@ -420,20 +473,28 @@ public class SmartFormHandler
         var sanitizedData = validation.SanitizedData;
         string dataJson = JsonSerializer.Serialize(sanitizedData);
 
-        // 4. Persist submission pinned to the active Published SmartFormVersionId (+ SmartObject record when bound)
-        var submission = new SmartFormSubmissionEntity(
-            $"sub-{Guid.NewGuid():N}"[..20],
-            form.Id,
-            command.SubmittedBy,
-            dataJson,
-            linkedInstanceId: null,
-            idempotencyKey: idempotencyKey,
-            smartFormVersionId: activeVersion.Id);
+        SmartFormSubmissionEntity? existingDraft = null;
+        if (!string.IsNullOrWhiteSpace(command.DraftId))
+        {
+            existingDraft = await _formRepository.GetSubmissionByIdAsync(command.DraftId.Trim(), ct);
+            if (existingDraft == null || !string.Equals(existingDraft.SmartFormId, form.Id, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new KeyNotFoundException($"Draft submission '{command.DraftId}' was not found for SmartForm '{form.Id}'.");
+            }
 
-        await _formRepository.AddSubmissionAsync(submission, ct);
-        form.IncrementSubmissions();
-        await _formRepository.UpdateAsync(form, ct);
+            if (!string.Equals(existingDraft.SubmittedBy, command.SubmittedBy, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new UnauthorizedAccessException($"User '{command.SubmittedBy}' is not allowed to submit draft '{existingDraft.Id}'.");
+            }
 
+            if (!existingDraft.IsDraft)
+            {
+                throw new InvalidOperationException($"Submission '{existingDraft.Id}' has already been submitted.");
+            }
+        }
+
+        // 4. Persist canonical SmartObject record first (if bound) so SmartFormSubmission links directly to SmartObjectRecordId
+        long? smartObjectRecordId = null;
         if (!string.IsNullOrWhiteSpace(form.LinkedSmartObjectId) && sanitizedData.Count > 0)
         {
             var so = await _smartObjectRepository.GetByIdAsync(form.LinkedSmartObjectId, ct);
@@ -441,10 +502,37 @@ public class SmartFormHandler
             {
                 string recordKey = $"REC-{Guid.NewGuid():N}"[..12].ToUpperInvariant();
                 var recordEntity = new SmartObjectRecordEntity(so.Id, recordKey, dataJson);
-                // AddRecordAsync also maintains the SmartObject records counter
-                await _smartObjectRepository.AddRecordAsync(recordEntity, ct);
+                // AddRecordAsync saves and populates recordEntity.Id while maintaining the SmartObject records counter
+                var savedRecord = await _smartObjectRepository.AddRecordAsync(recordEntity, ct);
+                smartObjectRecordId = savedRecord.Id;
             }
         }
+
+        SmartFormSubmissionEntity submission;
+        if (existingDraft != null)
+        {
+            existingDraft.CompleteDraft(dataJson, activeVersion.Id, smartObjectRecordId, idempotencyKey);
+            await _formRepository.UpdateSubmissionAsync(existingDraft, ct);
+            submission = existingDraft;
+        }
+        else
+        {
+            submission = new SmartFormSubmissionEntity(
+                $"sub-{Guid.NewGuid():N}"[..20],
+                form.Id,
+                command.SubmittedBy,
+                dataJson,
+                linkedInstanceId: null,
+                idempotencyKey: idempotencyKey,
+                smartFormVersionId: activeVersion.Id,
+                smartObjectRecordId: smartObjectRecordId,
+                status: SmartFormSubmissionEntity.StatusSubmitted);
+
+            await _formRepository.AddSubmissionAsync(submission, ct);
+        }
+
+        form.IncrementSubmissions();
+        await _formRepository.UpdateAsync(form, ct);
 
         // 4. Start the linked workflow in the same transaction; failures propagate and roll everything back
         if (command.StartLinkedWorkflow && !string.IsNullOrWhiteSpace(form.LinkedWorkflowKey))
@@ -504,10 +592,130 @@ public class SmartFormHandler
             submission.LinkedInstanceId,
             submission.SubmittedAt,
             IdempotentReplay: false,
-            SmartFormVersionId: submission.SmartFormVersionId);
+            SmartFormVersionId: submission.SmartFormVersionId,
+            SmartObjectRecordId: submission.SmartObjectRecordId,
+            Status: submission.Status,
+            UpdatedAt: submission.UpdatedAt,
+            SmartFormTitle: form.Title,
+            SmartFormCategory: form.Category);
     }
 
-    private static SmartFormSubmissionDto MapSubmission(SmartFormSubmissionEntity s, bool replay)
+    public async Task<SaveSmartFormDraftResult> Handle(SaveSmartFormDraftCommand command, CancellationToken ct)
+    {
+        var payload = command.Data ?? new Dictionary<string, object?>();
+        string dataJson = JsonSerializer.Serialize(payload);
+        if (Encoding.UTF8.GetByteCount(dataJson) > SmartFormQuotas.MaxSubmissionDataBytes)
+        {
+            throw new SmartFormValidationFailedException(
+                SmartFormValidationFailedException.PayloadTooLargeCode,
+                $"{SmartFormValidationFailedException.PayloadTooLargeCode}: Draft payload exceeds the maximum allowed size of {SmartFormQuotas.MaxSubmissionDataBytes / 1024} KB.");
+        }
+
+        var form = await _formRepository.GetByIdAsync(command.SmartFormId, ct);
+        if (form == null)
+        {
+            throw new KeyNotFoundException($"SmartForm '{command.SmartFormId}' not found.");
+        }
+
+        var activeVersion = form.GetActivePublishedVersion() ?? form.GetLatestVersion();
+
+        if (!string.IsNullOrWhiteSpace(command.DraftId))
+        {
+            var existing = await _formRepository.GetSubmissionByIdAsync(command.DraftId.Trim(), ct);
+            if (existing == null || !string.Equals(existing.SmartFormId, form.Id, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new KeyNotFoundException($"Draft '{command.DraftId}' not found for SmartForm '{form.Id}'.");
+            }
+
+            if (!string.Equals(existing.SubmittedBy, command.SubmittedBy, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new UnauthorizedAccessException($"User '{command.SubmittedBy}' is not authorized to modify draft '{existing.Id}'.");
+            }
+
+            if (!existing.IsDraft)
+            {
+                throw new InvalidOperationException($"Submission '{existing.Id}' is already submitted and cannot be modified as a draft.");
+            }
+
+            existing.UpdateDraftData(dataJson, activeVersion?.Id);
+            await _formRepository.UpdateSubmissionAsync(existing, ct);
+            return new SaveSmartFormDraftResult(MapSubmission(existing, replay: false, form.Title, form.Category), Created: false);
+        }
+
+        var draft = new SmartFormSubmissionEntity(
+            $"drf-{Guid.NewGuid():N}"[..20],
+            form.Id,
+            command.SubmittedBy,
+            dataJson,
+            linkedInstanceId: null,
+            idempotencyKey: null,
+            smartFormVersionId: activeVersion?.Id,
+            smartObjectRecordId: null,
+            status: SmartFormSubmissionEntity.StatusDraft);
+
+        await _formRepository.AddSubmissionAsync(draft, ct);
+        return new SaveSmartFormDraftResult(MapSubmission(draft, replay: false, form.Title, form.Category), Created: true);
+    }
+
+    public async Task<IReadOnlyList<SmartFormSubmissionDto>> Handle(GetMySmartFormSubmissionsQuery query, CancellationToken ct)
+    {
+        var submissions = await _formRepository.GetSubmissionsByUserAsync(query.SubmittedBy, query.AlternateUserId, ct);
+        if (submissions.Count == 0)
+        {
+            return Array.Empty<SmartFormSubmissionDto>();
+        }
+
+        var forms = await _formRepository.GetAllAsync(ct);
+        var formLookup = forms.ToDictionary(f => f.Id, StringComparer.OrdinalIgnoreCase);
+
+        var instanceLookup = new Dictionary<string, (string Status, string? CurrentStep)>(StringComparer.OrdinalIgnoreCase);
+        if (_instanceRepository != null)
+        {
+            var linkedIds = submissions
+                .Where(s => !string.IsNullOrWhiteSpace(s.LinkedInstanceId))
+                .Select(s => s.LinkedInstanceId!)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            foreach (var instId in linkedIds)
+            {
+                var inst = await _instanceRepository.GetByIdAsync(instId, ct);
+                if (inst != null)
+                {
+                    instanceLookup[instId] = (inst.Status.ToString(), inst.CurrentNodeId);
+                }
+            }
+        }
+
+        return submissions.Select(s =>
+        {
+            formLookup.TryGetValue(s.SmartFormId, out var formMeta);
+            string? instStatus = null;
+            string? currentStep = null;
+            if (!string.IsNullOrWhiteSpace(s.LinkedInstanceId) &&
+                instanceLookup.TryGetValue(s.LinkedInstanceId, out var instInfo))
+            {
+                instStatus = instInfo.Status;
+                currentStep = instInfo.CurrentStep;
+            }
+
+            return MapSubmission(
+                s,
+                replay: false,
+                formTitle: formMeta?.Title,
+                formCategory: formMeta?.Category,
+                instanceStatus: instStatus,
+                currentStep: currentStep);
+        }).ToList();
+    }
+
+    private static SmartFormSubmissionDto MapSubmission(
+        SmartFormSubmissionEntity s,
+        bool replay,
+        string? formTitle = null,
+        string? formCategory = null,
+        string? instanceStatus = null,
+        string? currentStep = null)
     {
         Dictionary<string, object?> parsed;
         try
@@ -527,7 +735,14 @@ public class SmartFormHandler
             s.LinkedInstanceId,
             s.SubmittedAt,
             replay,
-            s.SmartFormVersionId);
+            s.SmartFormVersionId,
+            s.SmartObjectRecordId,
+            s.Status,
+            s.UpdatedAt,
+            formTitle,
+            formCategory,
+            instanceStatus,
+            currentStep);
     }
 
     private static void EnsureExpectedVersion(SmartFormEntity entity, int? expectedVersion)
@@ -562,7 +777,8 @@ public class SmartFormHandler
                 s.LinkedInstanceId,
                 s.SubmittedAt,
                 IdempotentReplay: false,
-                SmartFormVersionId: s.SmartFormVersionId);
+                SmartFormVersionId: s.SmartFormVersionId,
+                SmartObjectRecordId: s.SmartObjectRecordId);
         }).ToList();
     }
 
@@ -633,9 +849,11 @@ public class SmartFormHandler
     private static SmartFormDto MapToDto(SmartFormEntity e)
     {
         var fields = DeserializeSmartFormFields(e.FieldsJson);
+        var rules = DeserializeFormRules(e.RulesJson);
         var draft = e.GetCurrentDraftVersion();
         var latest = e.GetLatestVersion();
         var draftFields = draft != null ? DeserializeSmartFormFields(draft.FieldsJson) : null;
+        var draftRules = draft != null ? DeserializeFormRules(draft.RulesJson) : null;
 
         return new SmartFormDto(
             e.Id,
@@ -655,7 +873,22 @@ public class SmartFormHandler
             latest?.Id,
             latest?.Status.ToString() ?? e.Status,
             draft != null,
-            draftFields);
+            draftFields,
+            rules,
+            draftRules);
+    }
+
+    private static List<FormRuleDto> DeserializeFormRules(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return new();
+        try
+        {
+            return JsonSerializer.Deserialize<List<FormRuleDto>>(json) ?? new();
+        }
+        catch
+        {
+            return new();
+        }
     }
 
     private static List<SmartFormFieldDto> DeserializeSmartFormFields(string json)

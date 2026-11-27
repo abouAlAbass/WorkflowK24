@@ -22,7 +22,7 @@ describe('Custom Nodes Readability & Typography', () => {
 
     render(
       <ReactFlowProvider>
-        <StartNode id="test-start" data={data} selected={false} type="trigger" zIndex={1} isConnectable={true} positionAbsoluteX={0} positionAbsoluteY={0} />
+        <StartNode id="test-start" data={data} selected={false} type="trigger" zIndex={1} isConnectable={true} positionAbsoluteX={0} positionAbsoluteY={0} dragging={false} draggable={true} selectable={true} deletable={true} />
       </ReactFlowProvider>
     );
 
@@ -50,7 +50,7 @@ describe('Custom Nodes Readability & Typography', () => {
 
     render(
       <ReactFlowProvider>
-        <ApprovalNode id="test-appr" data={data} selected={false} type="approval" zIndex={1} isConnectable={true} positionAbsoluteX={0} positionAbsoluteY={0} />
+        <ApprovalNode id="test-appr" data={data} selected={false} type="approval" zIndex={1} isConnectable={true} positionAbsoluteX={0} positionAbsoluteY={0} dragging={false} draggable={true} selectable={true} deletable={true} />
       </ReactFlowProvider>
     );
 
@@ -73,7 +73,7 @@ describe('Custom Nodes Readability & Typography', () => {
 
     render(
       <ReactFlowProvider>
-        <DecisionNode id="test-dec" data={data} selected={false} type="decision" zIndex={1} isConnectable={true} positionAbsoluteX={0} positionAbsoluteY={0} />
+        <DecisionNode id="test-dec" data={data} selected={false} type="decision" zIndex={1} isConnectable={true} positionAbsoluteX={0} positionAbsoluteY={0} dragging={false} draggable={true} selectable={true} deletable={true} />
       </ReactFlowProvider>
     );
 
@@ -95,7 +95,7 @@ describe('Custom Nodes Readability & Typography', () => {
 
     render(
       <ReactFlowProvider>
-        <SendEmailNode id="test-email" data={data} selected={false} type="sendEmail" zIndex={1} isConnectable={true} positionAbsoluteX={0} positionAbsoluteY={0} />
+        <SendEmailNode id="test-email" data={data} selected={false} type="sendEmail" zIndex={1} isConnectable={true} positionAbsoluteX={0} positionAbsoluteY={0} dragging={false} draggable={true} selectable={true} deletable={true} />
       </ReactFlowProvider>
     );
 
@@ -116,7 +116,7 @@ describe('Custom Nodes Readability & Typography', () => {
 
     render(
       <ReactFlowProvider>
-        <EndNode id="test-end" data={data} selected={false} type="end" zIndex={1} isConnectable={true} positionAbsoluteX={0} positionAbsoluteY={0} />
+        <EndNode id="test-end" data={data} selected={false} type="end" zIndex={1} isConnectable={true} positionAbsoluteX={0} positionAbsoluteY={0} dragging={false} draggable={true} selectable={true} deletable={true} />
       </ReactFlowProvider>
     );
 

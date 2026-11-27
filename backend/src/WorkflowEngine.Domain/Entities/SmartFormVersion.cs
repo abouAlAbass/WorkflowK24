@@ -14,6 +14,7 @@ public class SmartFormVersion
     public int VersionNumber { get; private set; }
     public SmartFormVersionStatus Status { get; private set; } = SmartFormVersionStatus.Draft;
     public string FieldsJson { get; private set; } = "[]";
+    public string RulesJson { get; private set; } = "[]";
     public DateTime? PublishedAt { get; private set; }
     public string? PublishedBy { get; private set; }
     public DateTime CreatedAt { get; private set; }
@@ -29,7 +30,8 @@ public class SmartFormVersion
         SmartFormVersionStatus status = SmartFormVersionStatus.Draft,
         string? publishedBy = null,
         DateTime? publishedAt = null,
-        string? id = null)
+        string? id = null,
+        string? rulesJson = null)
     {
         if (string.IsNullOrWhiteSpace(smartFormId))
             throw new ArgumentException("SmartFormId is required.", nameof(smartFormId));
@@ -40,6 +42,7 @@ public class SmartFormVersion
         SmartFormId = smartFormId;
         VersionNumber = versionNumber;
         FieldsJson = !string.IsNullOrWhiteSpace(fieldsJson) ? fieldsJson : "[]";
+        RulesJson = !string.IsNullOrWhiteSpace(rulesJson) ? rulesJson : "[]";
         Status = status;
         CreatedAt = DateTime.UtcNow;
 
@@ -50,7 +53,7 @@ public class SmartFormVersion
         }
     }
 
-    public void UpdateFields(string fieldsJson)
+    public void UpdateFields(string? fieldsJson, string? rulesJson = null)
     {
         if (Status != SmartFormVersionStatus.Draft)
         {
@@ -61,6 +64,11 @@ public class SmartFormVersion
         if (!string.IsNullOrWhiteSpace(fieldsJson))
         {
             FieldsJson = fieldsJson;
+        }
+
+        if (rulesJson != null)
+        {
+            RulesJson = string.IsNullOrWhiteSpace(rulesJson) ? "[]" : rulesJson;
         }
     }
 

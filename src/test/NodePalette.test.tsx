@@ -33,7 +33,7 @@ describe('NodePalette Compact Layout & Readability', () => {
       const el = screen.getByText(desc);
       expect(el).toBeInTheDocument();
       expect(el).toHaveAttribute('title', desc);
-      expect(el.className).toContain('truncate');
+      expect(el.className).toContain('line-clamp-2');
     });
   });
 });

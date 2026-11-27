@@ -79,6 +79,7 @@ export interface Translations {
   };
   nav: {
     dashboard: string;
+    portal: string;
     designer: string;
     smartforms: string;
     instances: string;
@@ -213,6 +214,7 @@ export const translations: Record<SupportedLanguage, Translations> = {
     },
     nav: {
       dashboard: 'Home Dashboard',
+      portal: 'Service Portal',
       designer: 'Workflow Designer',
       smartforms: 'Form Designer (SmartForms)',
       instances: 'Active Instances',
@@ -345,6 +347,7 @@ export const translations: Record<SupportedLanguage, Translations> = {
     },
     nav: {
       dashboard: 'Tableau de bord',
+      portal: 'Portail de Services',
       designer: 'Studio de Workflow',
       smartforms: 'Formulaires (SmartForms)',
       instances: 'Instances actives',
@@ -477,6 +480,7 @@ export const translations: Record<SupportedLanguage, Translations> = {
     },
     nav: {
       dashboard: 'لوحة القيادة الرئيسية',
+      portal: 'بوابة الخدمات',
       designer: 'مصمم مسارات العمل',
       smartforms: 'مصمم النماذج الذكية (SmartForms)',
       instances: 'العمليات النشطة',

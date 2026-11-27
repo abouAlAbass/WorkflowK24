@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import '@testing-library/jest-dom/vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { UsersView } from '../components/views/UsersView';
 import { useWorkflowStore } from '../hooks/useWorkflowStore';
@@ -88,11 +89,25 @@ describe('UsersView User Administration', () => {
 
     expect(screen.getByText('Adel Sebti')).toBeInTheDocument();
 
-    const deleteButtons = screen.getAllByTitle('Delete user');
+    const deleteButtons = screen.getAllByTitle(/Delete user/i);
     fireEvent.click(deleteButtons[0]);
 
     await waitFor(() => {
       expect(screen.queryByText('Adel Sebti')).not.toBeInTheDocument();
+    });
+  });
+
+  it('opens Edit user modal and updates role/status', async () => {
+    render(<UsersView />);
+
+    fireEvent.click(screen.getByLabelText('Edit Karim Khmissi'));
+    expect(screen.getByRole('dialog', { name: 'Edit user' })).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Status'), { target: { value: 'Inactive' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Inactive')).toBeInTheDocument();
     });
   });
 });

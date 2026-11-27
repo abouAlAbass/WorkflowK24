@@ -9,17 +9,20 @@ public sealed record SmartFormValidationResult(
 
 /// <summary>
 /// Deterministic server-side Zero-Trust validation engine for SmartForm submissions and task FormPatches.
-/// Evaluates visibility rules, strips hidden/undeclared phantom fields, enforces readOnly immutability,
-/// checks visible required fields, and validates data types and constraints without eval.
+/// Evaluates legacy visibility rules and JSONLogic FormRule[] (visible, required, readOnly, computedValue)
+/// in DAG topological order, strips hidden/undeclared phantom fields, recomputes calculated fields server-side,
+/// enforces static and conditional readOnly immutability, checks required fields, and validates data types.
 /// </summary>
 public interface ISmartFormValidationEngine
 {
     SmartFormValidationResult ValidateSubmission(
         string fieldsJson,
-        IReadOnlyDictionary<string, object?>? submittedData);
+        IReadOnlyDictionary<string, object?>? submittedData,
+        string? rulesJson = null);
 
     SmartFormValidationResult ValidatePatch(
         string fieldsJson,
         IReadOnlyDictionary<string, object?>? formPatch,
-        IReadOnlyDictionary<string, object?>? existingData = null);
+        IReadOnlyDictionary<string, object?>? existingData = null,
+        string? rulesJson = null);
 }

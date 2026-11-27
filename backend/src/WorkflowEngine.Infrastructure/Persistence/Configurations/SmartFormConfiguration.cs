@@ -51,6 +51,10 @@ public class SmartFormConfiguration : IEntityTypeConfiguration<SmartFormEntity>
             .HasDefaultValue("[]")
             .IsRequired();
 
+        builder.Property(f => f.RulesJson)
+            .HasDefaultValue("[]")
+            .IsRequired();
+
         builder.Property(f => f.SubmissionsCount)
             .HasDefaultValue(0)
             .IsRequired();

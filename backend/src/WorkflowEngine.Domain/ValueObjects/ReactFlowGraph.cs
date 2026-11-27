@@ -33,7 +33,69 @@ public record ReactFlowNodeData(
     [property: JsonPropertyName("sendEmailData")] SendEmailDataPayload? SendEmailData = null,
     [property: JsonPropertyName("endData")] EndDataPayload? EndData = null,
     [property: JsonPropertyName("decisionData")] DecisionDataPayload? DecisionData = null,
-    [property: JsonPropertyName("stageData")] StageDataPayload? StageData = null
+    [property: JsonPropertyName("stageData")] StageDataPayload? StageData = null,
+    [property: JsonPropertyName("httpData")] HttpNodeDataPayload? HttpData = null,
+    [property: JsonPropertyName("smartObjectData")] SmartObjectNodeDataPayload? SmartObjectData = null,
+    [property: JsonPropertyName("splitData")] ParallelSplitDataPayload? SplitData = null,
+    [property: JsonPropertyName("joinData")] ParallelJoinDataPayload? JoinData = null,
+    [property: JsonPropertyName("setVariables")] Dictionary<string, System.Text.Json.JsonElement>? SetVariables = null,
+    [property: JsonPropertyName("outputVariables")] List<string>? OutputVariables = null
+);
+
+public record ParallelSplitDataPayload(
+    [property: JsonPropertyName("mode")] string Mode = "all",
+    [property: JsonPropertyName("collectionExpression")] string? CollectionExpression = null,
+    [property: JsonPropertyName("itemVariable")] string? ItemVariable = "item",
+    [property: JsonPropertyName("branchConditions")] Dictionary<string, DecisionDataPayload>? BranchConditions = null,
+    [property: JsonPropertyName("onBranchFailure")] string? OnBranchFailure = "fail_instance",
+    [property: JsonPropertyName("joinNodeId")] string? JoinNodeId = null
+);
+
+public record ParallelJoinDataPayload(
+    [property: JsonPropertyName("policy")] string Policy = "all",
+    [property: JsonPropertyName("quorumCount")] int? QuorumCount = null,
+    [property: JsonPropertyName("requiredCount")] int? RequiredCount = null,
+    [property: JsonPropertyName("onRemaining")] string? OnRemaining = "cancel",
+    [property: JsonPropertyName("mergeStrategy")] string? MergeStrategy = null,
+    [property: JsonPropertyName("variableMergeStrategies")] Dictionary<string, string>? VariableMergeStrategies = null,
+    [property: JsonPropertyName("splitNodeId")] string? SplitNodeId = null
+);
+
+public record SmartObjectNodeDataPayload(
+    [property: JsonPropertyName("smartObjectRef")] string SmartObjectRef,
+    [property: JsonPropertyName("methodName")] string MethodName,
+    [property: JsonPropertyName("inputMapping")] Dictionary<string, System.Text.Json.JsonElement>? InputMapping = null,
+    [property: JsonPropertyName("outputMapping")] Dictionary<string, string>? OutputMapping = null,
+    [property: JsonPropertyName("onBusinessError")] HttpBusinessErrorPayload? OnBusinessError = null,
+    [property: JsonPropertyName("retryPolicy")] HttpRetryPolicyPayload? RetryPolicy = null,
+    [property: JsonPropertyName("idempotencyKey")] string? IdempotencyKey = null
+);
+
+public record HttpNodeDataPayload(
+    [property: JsonPropertyName("connectionRef")] string ConnectionRef,
+    [property: JsonPropertyName("method")] string Method = "GET",
+    [property: JsonPropertyName("path")] string Path = "",
+    [property: JsonPropertyName("headers")] Dictionary<string, string>? Headers = null,
+    [property: JsonPropertyName("queryParams")] Dictionary<string, string>? QueryParams = null,
+    [property: JsonPropertyName("body")] System.Text.Json.JsonElement? Body = null,
+    [property: JsonPropertyName("timeoutMs")] int? TimeoutMs = null,
+    [property: JsonPropertyName("maxResponseBytes")] int? MaxResponseBytes = null,
+    [property: JsonPropertyName("retryPolicy")] HttpRetryPolicyPayload? RetryPolicy = null,
+    [property: JsonPropertyName("responseMapping")] Dictionary<string, string>? ResponseMapping = null,
+    [property: JsonPropertyName("onBusinessError")] HttpBusinessErrorPayload? OnBusinessError = null,
+    [property: JsonPropertyName("idempotencyKey")] string? IdempotencyKey = null
+);
+
+public record HttpRetryPolicyPayload(
+    [property: JsonPropertyName("maxAttempts")] int MaxAttempts = 3,
+    [property: JsonPropertyName("initialDelayMs")] int InitialDelayMs = 200,
+    [property: JsonPropertyName("backoffMultiplier")] double BackoffMultiplier = 2.0,
+    [property: JsonPropertyName("maxDelayMs")] int MaxDelayMs = 5000
+);
+
+public record HttpBusinessErrorPayload(
+    [property: JsonPropertyName("routeTo")] string? RouteTo = null,
+    [property: JsonPropertyName("errorVariable")] string? ErrorVariable = null
 );
 
 public record StageDataPayload(
@@ -70,7 +132,14 @@ public record ApprovalDataPayload(
     [property: JsonPropertyName("allowReassignment")] bool? AllowReassignment = true,
     [property: JsonPropertyName("dueDateDays")] int? DueDateDays = 2,
     [property: JsonPropertyName("formId")] string? FormId = null,
-    [property: JsonPropertyName("formMode")] string? FormMode = "readonly"
+    [property: JsonPropertyName("formMode")] string? FormMode = "readonly",
+    [property: JsonPropertyName("resolutionPolicy")] string? ResolutionPolicy = null,
+    [property: JsonPropertyName("quorumCount")] int? QuorumCount = null,
+    [property: JsonPropertyName("dueAt")] DateTime? DueAt = null,
+    [property: JsonPropertyName("escalationTarget")] string? EscalationTarget = null,
+    [property: JsonPropertyName("escalationTargetType")] string? EscalationTargetType = null,
+    [property: JsonPropertyName("allowedRoles")] List<string>? AllowedRoles = null,
+    [property: JsonPropertyName("outputVariables")] List<string>? OutputVariables = null
 );
 
 public record ApprovalOutcomeDto(

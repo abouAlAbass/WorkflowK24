@@ -33,6 +33,10 @@ public class SmartFormVersionConfiguration : IEntityTypeConfiguration<SmartFormV
             .HasDefaultValue("[]")
             .IsRequired();
 
+        builder.Property(v => v.RulesJson)
+            .HasDefaultValue("[]")
+            .IsRequired();
+
         builder.Property(v => v.PublishedAt)
             .IsRequired(false);
 

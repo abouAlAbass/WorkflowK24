@@ -24,9 +24,15 @@ public class CreateUserCommandValidator : AbstractValidator<CreateUserCommand>
         RuleFor(x => x.Email).NotEmpty().EmailAddress().MaximumLength(255);
         RuleFor(x => x.Role).NotEmpty().MaximumLength(100);
         RuleFor(x => x.Group).NotEmpty().MaximumLength(100);
+        RuleFor(x => x.Role)
+            .Must(Roles.IsValid)
+            .WithMessage($"Role must be one of: {string.Join(", ", Roles.Assignable)}.");
+        RuleFor(x => x.Role)
+            .NotEqual(Roles.Administrator)
+            .WithMessage("The 'Administrator' role is reserved for the single principal administrator.");
         RuleFor(x => x.Password)
-            .MinimumLength(8)
-            .When(x => !string.IsNullOrWhiteSpace(x.Password));
+            .NotEmpty().WithMessage("A password is required so the new user can sign in.")
+            .Must(PasswordPolicy.IsValid).WithMessage(PasswordPolicy.Description);
     }
 }
 

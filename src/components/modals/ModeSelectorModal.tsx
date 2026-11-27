@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
-import { Play, Server, Lock, CheckCircle2, AlertCircle, Sparkles, LogIn } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Play, Server, Lock, CheckCircle2, AlertCircle, Sparkles, LogIn, ShieldCheck } from 'lucide-react';
 import { repositoryManager } from '../../services/repositoryManager';
 import type { AppMode } from '../../services/workflowRepository';
+import type { PublicAuthProvider } from '../../types/workflow';
 import { useWorkflowStore } from '../../store/useWorkflowStore';
 
 interface ModeSelectorModalProps {
@@ -20,10 +21,35 @@ export const ModeSelectorModal: React.FC<ModeSelectorModalProps> = ({
   const [password, setPassword] = useState('Password123!');
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [ssoProviders, setSsoProviders] = useState<PublicAuthProvider[]>([]);
 
   const syncData = useWorkflowStore((state) => state.syncDataFromRepository);
 
+  useEffect(() => {
+    if (!isOpen || selectedMode !== 'connected') return;
+    let cancelled = false;
+    repositoryManager
+      .getHttpRepository()
+      .getPublicAuthProviders()
+      .then((res) => {
+        if (!cancelled) {
+          setSsoProviders(res.providers || []);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setSsoProviders([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, selectedMode]);
+
   if (!isOpen) return null;
+
+  const handleSsoRedirect = (providerId: string) => {
+    const challengeUrl = repositoryManager.getHttpRepository().getExternalChallengeUrl(providerId);
+    window.location.assign(challengeUrl);
+  };
 
   const handleApply = async () => {
     setIsLoading(true);
@@ -149,10 +175,33 @@ export const ModeSelectorModal: React.FC<ModeSelectorModalProps> = ({
           {/* Login form if Connected Mode */}
           {selectedMode === 'connected' && (
             <div className="mt-4 p-4 rounded-xl bg-slate-950/60 border border-slate-800 space-y-3 animate-in fade-in slide-in-from-top-2 duration-150">
+              {ssoProviders.length > 0 && (
+                <div className="space-y-2 pb-3 border-b border-slate-800">
+                  <span className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                    SSO Entreprise (OpenID Connect)
+                  </span>
+                  <div className="grid grid-cols-1 gap-2">
+                    {ssoProviders.map((provider) => (
+                      <button
+                        key={provider.id}
+                        type="button"
+                        onClick={() => handleSsoRedirect(provider.id)}
+                        data-testid={`sso-provider-btn-${provider.id}`}
+                        className="w-full px-3 py-2 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/40 text-xs font-semibold text-indigo-200 flex items-center justify-center gap-2 cursor-pointer transition-colors"
+                      >
+                        <ShieldCheck className="w-4 h-4 text-indigo-300" />
+                        <span>Continuer avec {provider.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
                   <LogIn className="w-3.5 h-3.5 text-indigo-400" />
-                  API Authentication
+                  Connexion locale / Break-glass
                 </span>
                 <span className="text-[11px] text-slate-500">Preset accounts:</span>
               </div>
@@ -160,7 +209,18 @@ export const ModeSelectorModal: React.FC<ModeSelectorModalProps> = ({
               <div className="flex gap-2">
                 <button
                   type="button"
-                  onClick={() => setEmail('adel.sebti@corp.internal')}
+                  onClick={() => { setEmail('admin@tamam.local'); setPassword('Admin@Tamam2026!'); }}
+                  className={`text-[11px] px-2.5 py-1 rounded-lg border transition-all ${
+                    email === 'admin@tamam.local'
+                      ? 'bg-indigo-600/20 border-indigo-500/40 text-indigo-300'
+                      : 'bg-slate-850 border-slate-700 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  Principal Admin
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setEmail('adel.sebti@corp.internal'); setPassword('Password123!'); }}
                   className={`text-[11px] px-2.5 py-1 rounded-lg border transition-all ${
                     email === 'adel.sebti@corp.internal'
                       ? 'bg-indigo-600/20 border-indigo-500/40 text-indigo-300'
@@ -184,8 +244,9 @@ export const ModeSelectorModal: React.FC<ModeSelectorModalProps> = ({
 
               <div className="space-y-2">
                 <div>
-                  <label className="text-[11px] text-slate-400 block mb-1">Email</label>
+                  <label htmlFor="local-login-email" className="text-[11px] text-slate-400 block mb-1">Email</label>
                   <input
+                    id="local-login-email"
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
@@ -194,8 +255,9 @@ export const ModeSelectorModal: React.FC<ModeSelectorModalProps> = ({
                   />
                 </div>
                 <div>
-                  <label className="text-[11px] text-slate-400 block mb-1">Password</label>
+                  <label htmlFor="local-login-password" className="text-[11px] text-slate-400 block mb-1">Password</label>
                   <input
+                    id="local-login-password"
                     type="password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}

@@ -46,6 +46,12 @@ public class WorkflowInstance
     private readonly List<NodeExecution> _nodeExecutions = new();
     public IReadOnlyCollection<NodeExecution> NodeExecutions => _nodeExecutions;
 
+    private readonly List<WorkflowToken> _tokens = new();
+    public IReadOnlyCollection<WorkflowToken> Tokens => _tokens;
+
+    private readonly List<JoinState> _joinStates = new();
+    public IReadOnlyCollection<JoinState> JoinStates => _joinStates;
+
     private WorkflowInstance() { } // Required for ORM hydration
 
     public WorkflowInstance(
@@ -125,7 +131,7 @@ public class WorkflowInstance
         LastUpdatedAt = DateTime.UtcNow;
         Version++;
 
-        foreach (var task in _tasks.Where(t => t.Status == TaskStatus.Pending))
+        foreach (var task in _tasks.Where(t => t.IsActive))
         {
             task.Cancel();
         }
@@ -133,6 +139,11 @@ public class WorkflowInstance
         foreach (var activeNode in _nodeExecutions.Where(n => n.Status is "Running" or "Waiting"))
         {
             activeNode.MarkCancelled(CompletedAt);
+        }
+
+        foreach (var openToken in _tokens.Where(t => t.IsOpen))
+        {
+            openToken.MarkCancelled();
         }
 
         AddAuditLog(NextSequenceNumber(), CurrentNodeId, CurrentNodeType, AuditEventType.NodeExit, $"Execution cancelled: {reason}");
@@ -237,14 +248,48 @@ public class WorkflowInstance
         LastUpdatedAt = DateTime.UtcNow;
     }
 
-    public WorkflowTask CreateTask(string taskId, string nodeId, string taskTitle, AssigneeType assigneeType, string assigneeId, int? dueDateDays)
+    public WorkflowTask CreateTask(
+        string taskId,
+        string nodeId,
+        string taskTitle,
+        AssigneeType assigneeType,
+        string assigneeId,
+        int? dueDateDays,
+        TaskResolutionPolicy resolutionPolicy = TaskResolutionPolicy.Single,
+        int? quorumCount = null,
+        DateTime? explicitDueAt = null,
+        string? tokenId = null,
+        string? branchId = null,
+        string? metadataJson = null)
     {
-        DateTime? dueDate = dueDateDays.HasValue ? DateTime.UtcNow.AddDays(dueDateDays.Value) : null;
-        var task = new WorkflowTask(taskId, InstanceId, nodeId, taskTitle, assigneeType, assigneeId, dueDate);
+        DateTime? dueDate = explicitDueAt ?? (dueDateDays.HasValue ? DateTime.UtcNow.AddDays(dueDateDays.Value) : null);
+        var task = new WorkflowTask(taskId, InstanceId, nodeId, taskTitle, assigneeType, assigneeId, dueDate, resolutionPolicy, quorumCount, tokenId, branchId, metadataJson);
         _tasks.Add(task);
 
         AddAuditLog(NextSequenceNumber(), nodeId, "approval", AuditEventType.TaskAssigned, $"Approval task '{taskTitle}' assigned to {assigneeType} '{assigneeId}'");
         return task;
+    }
+
+    public WorkflowToken AddToken(
+        string tokenId,
+        string nodeId,
+        string? parentTokenId = null,
+        string? branchId = null,
+        string? splitNodeId = null,
+        string? branchVariablesJson = null)
+    {
+        var token = new WorkflowToken(tokenId, InstanceId, nodeId, parentTokenId, branchId, splitNodeId, branchVariablesJson);
+        _tokens.Add(token);
+        LastUpdatedAt = DateTime.UtcNow;
+        return token;
+    }
+
+    public JoinState AddJoinState(string joinStateId, string splitNodeId, string joinNodeId, int expectedCount)
+    {
+        var joinState = new JoinState(joinStateId, InstanceId, splitNodeId, joinNodeId, expectedCount);
+        _joinStates.Add(joinState);
+        LastUpdatedAt = DateTime.UtcNow;
+        return joinState;
     }
 
     public void RecordFailure(string nodeId, string nodeType, string errorCode, string errorMessage, string? stackTrace, string? inputSnapshot)

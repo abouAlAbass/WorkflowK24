@@ -9,7 +9,11 @@ import {
   Flag, 
   GitBranch, 
   Layers,
-  Clock
+  Clock,
+  Globe,
+  Database,
+  GitFork,
+  GitMerge
 } from 'lucide-react';
 import { useWorkflowStore } from '../../hooks/useWorkflowStore';
 import { useTheme } from '../../hooks/useTheme';
@@ -19,6 +23,10 @@ import { SendEmailConfig } from './SendEmailConfig';
 import { EndEventConfig } from './EndEventConfig';
 import { DecisionConfig } from './DecisionConfig';
 import { StageConfig } from './StageConfig';
+import { HttpConfig } from './HttpConfig';
+import { SmartObjectConfig } from './SmartObjectConfig';
+import { ParallelSplitConfig } from './ParallelSplitConfig';
+import { ParallelJoinConfig } from './ParallelJoinConfig';
 import type { WorkflowNodeCustomData } from '../../types/workflow';
 
 export const ConfigDrawer: React.FC = () => {
@@ -41,6 +49,10 @@ export const ConfigDrawer: React.FC = () => {
       case 'end': return <Flag className="w-4 h-4 text-[#DC2626]" />;
       case 'decision': return <GitBranch className="w-4 h-4 text-[#7C3AED]" />;
       case 'stage': return <Layers className="w-4 h-4 text-[#6366F1]" />;
+      case 'http': return <Globe className="w-4 h-4 text-[#0891B2]" />;
+      case 'smartObject': return <Database className="w-4 h-4 text-[#0D9488]" />;
+      case 'parallelSplit': return <GitFork className="w-4 h-4 text-[#0284C7]" />;
+      case 'parallelJoin': return <GitMerge className="w-4 h-4 text-[#0F766E]" />;
       default: return <Sliders className="w-4 h-4 text-[#475569]" />;
     }
   };
@@ -61,6 +73,14 @@ export const ConfigDrawer: React.FC = () => {
         return <DecisionConfig nodeId={selectedNode.id} data={data} />;
       case 'stage':
         return <StageConfig nodeId={selectedNode.id} data={data} />;
+      case 'http':
+        return <HttpConfig nodeId={selectedNode.id} data={data} />;
+      case 'smartObject':
+        return <SmartObjectConfig nodeId={selectedNode.id} data={data} />;
+      case 'parallelSplit':
+        return <ParallelSplitConfig nodeId={selectedNode.id} data={data} />;
+      case 'parallelJoin':
+        return <ParallelJoinConfig nodeId={selectedNode.id} data={data} />;
       default:
         return (
           <div className="text-xs text-[#475569] dark:text-slate-300 p-4">

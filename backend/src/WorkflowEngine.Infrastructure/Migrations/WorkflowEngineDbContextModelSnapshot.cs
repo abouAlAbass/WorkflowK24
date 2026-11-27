@@ -22,6 +22,122 @@ namespace WorkflowEngine.Infrastructure.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
+            modelBuilder.Entity("Microsoft.AspNetCore.DataProtection.EntityFrameworkCore.DataProtectionKey", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("FriendlyName")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Xml")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("DataProtectionKeys");
+                });
+
+            modelBuilder.Entity("WorkflowEngine.Domain.Entities.AuthProvider", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<bool>("AllowAdminRoleMapping")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false);
+
+                    b.Property<bool>("AllowEmailMatching")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false);
+
+                    b.Property<string>("Authority")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<string>("ClientId")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<string>("DefaultRole")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasDefaultValue("User");
+
+                    b.Property<string>("EncryptedClientSecret")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<bool>("IsEnabled")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(true);
+
+                    b.Property<bool>("JitProvisioningEnabled")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(true);
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.Property<string>("Protocol")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)")
+                        .HasDefaultValue("oidc");
+
+                    b.Property<string>("RoleMappingJson")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("nvarchar(max)")
+                        .HasDefaultValue("{}");
+
+                    b.Property<string>("Scopes")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)")
+                        .HasDefaultValue("openid profile email");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(1);
+
+                    b.HasKey("Id")
+                        .HasName("PK_AuthProviders");
+
+                    b.HasIndex("Name")
+                        .IsUnique()
+                        .HasDatabaseName("UQ_AuthProviders_Name");
+
+                    b.ToTable("AuthProviders", (string)null);
+                });
+
             modelBuilder.Entity("WorkflowEngine.Domain.Entities.CommandLog", b =>
                 {
                     b.Property<Guid>("CommandId")
@@ -51,6 +167,427 @@ namespace WorkflowEngine.Infrastructure.Migrations
                         .HasDatabaseName("IX_CommandLogs_InstanceId");
 
                     b.ToTable("CommandLogs", (string)null);
+                });
+
+            modelBuilder.Entity("WorkflowEngine.Domain.Entities.Connection", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<bool>("AllowWrite")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false);
+
+                    b.Property<string>("AllowedHostsJson")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("nvarchar(max)")
+                        .HasDefaultValue("[]");
+
+                    b.Property<string>("AuthMode")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)")
+                        .HasDefaultValue("static");
+
+                    b.Property<string>("AuthType")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)")
+                        .HasDefaultValue("none");
+
+                    b.Property<string>("BaseUrl")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)")
+                        .HasDefaultValue("");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.Property<string>("DefaultHeadersJson")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("EncryptedCredentialsJson")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("ExternalSecretKey")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("HealthStatus")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)")
+                        .HasDefaultValue("Unknown");
+
+                    b.Property<string>("LastErrorSanitized")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<DateTime?>("LastRotatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("LastTestedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("LastUsedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("MaxRows")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(200);
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.Property<DateTime?>("SecretExpiresAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("SecretRef")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("SecretSource")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)")
+                        .HasDefaultValue("internal_encrypted");
+
+                    b.Property<string>("ServiceType")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)")
+                        .HasDefaultValue("rest");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(1);
+
+                    b.HasKey("Id")
+                        .HasName("PK_Connections");
+
+                    b.HasIndex("Name")
+                        .IsUnique()
+                        .HasDatabaseName("UQ_Connections_Name");
+
+                    b.ToTable("Connections", (string)null);
+                });
+
+            modelBuilder.Entity("WorkflowEngine.Domain.Entities.ConnectionEnvironmentConfig", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("BaseUrlOverride")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<string>("ConnectionId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("EncryptedCredentialsJsonOverride")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("EnvironmentName")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<string>("ExternalSecretKeyOverride")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.HasKey("Id")
+                        .HasName("PK_ConnectionEnvironmentConfigs");
+
+                    b.HasIndex("ConnectionId", "EnvironmentName")
+                        .IsUnique()
+                        .HasDatabaseName("UQ_ConnectionEnvironmentConfigs_Connection_Env");
+
+                    b.ToTable("ConnectionEnvironmentConfigs", (string)null);
+                });
+
+            modelBuilder.Entity("WorkflowEngine.Domain.Entities.ConnectionPermission", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<bool>("CanManage")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false);
+
+                    b.Property<bool>("CanUse")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false);
+
+                    b.Property<string>("ConnectionId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<string>("SubjectId")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.Property<string>("SubjectType")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.HasKey("Id")
+                        .HasName("PK_ConnectionPermissions");
+
+                    b.HasIndex("ConnectionId", "SubjectType", "SubjectId")
+                        .IsUnique()
+                        .HasDatabaseName("UQ_ConnectionPermissions_Connection_Subject");
+
+                    b.ToTable("ConnectionPermissions", (string)null);
+                });
+
+            modelBuilder.Entity("WorkflowEngine.Domain.Entities.ConnectionUsageLog", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("ActorId")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.Property<string>("ConnectionId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<long>("DurationMs")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("ExecutedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<string>("InstanceId")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("NodeId")
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.Property<bool>("Success")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("WorkflowKey")
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.HasKey("Id")
+                        .HasName("PK_ConnectionUsageLogs");
+
+                    b.HasIndex("ConnectionId", "ExecutedAt")
+                        .HasDatabaseName("IX_ConnectionUsageLogs_Connection_ExecutedAt");
+
+                    b.ToTable("ConnectionUsageLogs", (string)null);
+                });
+
+            modelBuilder.Entity("WorkflowEngine.Domain.Entities.DelegationRule", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<bool>("Active")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(true);
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.Property<string>("DelegateId")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.Property<string>("DelegatorId")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<string>("Scope")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)")
+                        .HasDefaultValue("*");
+
+                    b.Property<DateTime>("ValidFrom")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("ValidTo")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id")
+                        .HasName("PK_DelegationRules");
+
+                    b.HasIndex("DelegatorId", "Active", "ValidFrom", "ValidTo")
+                        .HasDatabaseName("IX_DelegationRules_Delegator_Active_Window");
+
+                    b.ToTable("DelegationRules", (string)null);
+                });
+
+            modelBuilder.Entity("WorkflowEngine.Domain.Entities.ExternalUserLogin", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)")
+                        .HasDefaultValue("");
+
+                    b.Property<string>("ExternalSubject")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.Property<DateTime>("LastLoginAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<string>("ProviderId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.HasKey("Id")
+                        .HasName("PK_ExternalUserLogins");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("IX_ExternalUserLogins_UserId");
+
+                    b.HasIndex("ProviderId", "ExternalSubject")
+                        .IsUnique()
+                        .HasDatabaseName("UQ_ExternalUserLogins_Provider_Sub");
+
+                    b.ToTable("ExternalUserLogins", (string)null);
+                });
+
+            modelBuilder.Entity("WorkflowEngine.Domain.Entities.ExternalUserToken", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("EncryptedAccessToken")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("EncryptedRefreshToken")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("ProviderId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.HasKey("Id")
+                        .HasName("PK_ExternalUserTokens");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("IX_ExternalUserTokens_UserId");
+
+                    b.HasIndex("UserId", "ProviderId")
+                        .IsUnique()
+                        .HasDatabaseName("UQ_ExternalUserTokens_User_Provider");
+
+                    b.ToTable("ExternalUserTokens", (string)null);
                 });
 
             modelBuilder.Entity("WorkflowEngine.Domain.Entities.FormAttachmentEntity", b =>
@@ -162,6 +699,59 @@ namespace WorkflowEngine.Infrastructure.Migrations
                     b.ToTable("InstanceEvents", (string)null);
                 });
 
+            modelBuilder.Entity("WorkflowEngine.Domain.Entities.JoinState", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<int>("ArrivedCount")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("ExpectedCount")
+                        .HasColumnType("int");
+
+                    b.Property<string>("InstanceId")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<bool>("JoinFired")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false);
+
+                    b.Property<string>("JoinNodeId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("SplitNodeId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(1);
+
+                    b.HasKey("Id")
+                        .HasName("PK_JoinStates");
+
+                    b.HasIndex("InstanceId", "SplitNodeId", "JoinNodeId")
+                        .HasDatabaseName("IX_JoinStates_Instance_Split_Join");
+
+                    b.ToTable("JoinStates", (string)null);
+                });
+
             modelBuilder.Entity("WorkflowEngine.Domain.Entities.NodeExecution", b =>
                 {
                     b.Property<long>("Id")
@@ -214,6 +804,54 @@ namespace WorkflowEngine.Infrastructure.Migrations
                     b.ToTable("NodeExecutions", (string)null);
                 });
 
+            modelBuilder.Entity("WorkflowEngine.Domain.Entities.SecurityAuditEvent", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("ActorId")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("EventType")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("MetadataJson")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<string>("TargetId")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("TargetType")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.HasKey("Id")
+                        .HasName("PK_SecurityAuditEvents");
+
+                    b.HasIndex("CreatedAt")
+                        .HasDatabaseName("IX_SecurityAuditEvents_CreatedAt");
+
+                    b.HasIndex("EventType")
+                        .HasDatabaseName("IX_SecurityAuditEvents_EventType");
+
+                    b.HasIndex("TargetType", "TargetId")
+                        .HasDatabaseName("IX_SecurityAuditEvents_Target");
+
+                    b.ToTable("SecurityAuditEvents", (string)null);
+                });
+
             modelBuilder.Entity("WorkflowEngine.Domain.Entities.SmartFormEntity", b =>
                 {
                     b.Property<string>("Id")
@@ -263,6 +901,12 @@ namespace WorkflowEngine.Infrastructure.Migrations
                         .IsRequired()
                         .HasMaxLength(150)
                         .HasColumnType("nvarchar(150)");
+
+                    b.Property<string>("RulesJson")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("nvarchar(max)")
+                        .HasDefaultValue("[]");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -327,6 +971,16 @@ namespace WorkflowEngine.Infrastructure.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
 
+                    b.Property<long?>("SmartObjectRecordId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)")
+                        .HasDefaultValue("Submitted");
+
                     b.Property<DateTime>("SubmittedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("datetime2")
@@ -337,6 +991,11 @@ namespace WorkflowEngine.Infrastructure.Migrations
                         .HasMaxLength(255)
                         .HasColumnType("nvarchar(255)");
 
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
                     b.HasKey("Id")
                         .HasName("PK_SmartFormSubmissions");
 
@@ -346,10 +1005,16 @@ namespace WorkflowEngine.Infrastructure.Migrations
                     b.HasIndex("SmartFormVersionId")
                         .HasDatabaseName("IX_SmartFormSubmissions_VersionId");
 
+                    b.HasIndex("SmartObjectRecordId")
+                        .HasDatabaseName("IX_SmartFormSubmissions_SmartObjectRecordId");
+
                     b.HasIndex("SmartFormId", "IdempotencyKey")
                         .IsUnique()
                         .HasDatabaseName("UX_SmartFormSubmissions_Form_IdempotencyKey")
                         .HasFilter("[IdempotencyKey] IS NOT NULL");
+
+                    b.HasIndex("SubmittedBy", "Status")
+                        .HasDatabaseName("IX_SmartFormSubmissions_SubmittedBy_Status");
 
                     b.ToTable("SmartFormSubmissions", (string)null);
                 });
@@ -377,6 +1042,12 @@ namespace WorkflowEngine.Infrastructure.Migrations
                     b.Property<string>("PublishedBy")
                         .HasMaxLength(255)
                         .HasColumnType("nvarchar(255)");
+
+                    b.Property<string>("RulesJson")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("nvarchar(max)")
+                        .HasDefaultValue("[]");
 
                     b.Property<string>("SmartFormId")
                         .IsRequired()
@@ -434,27 +1105,67 @@ namespace WorkflowEngine.Infrastructure.Migrations
                         .HasColumnType("nvarchar(max)")
                         .HasDefaultValue("[]");
 
+                    b.Property<string>("MethodsJson")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("nvarchar(max)")
+                        .HasDefaultValue("[]");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(150)
                         .HasColumnType("nvarchar(150)");
+
+                    b.Property<string>("PrimaryKeyField")
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.Property<DateTime?>("PublishedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("PublishedBy")
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
 
                     b.Property<int>("RecordsCount")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("int")
                         .HasDefaultValue(0);
 
+                    b.Property<string>("SourceConnectionId")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("SourceEntityName")
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)")
+                        .HasDefaultValue("Draft");
+
                     b.Property<DateTime>("UpdatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("datetime2")
                         .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
+                    b.Property<int>("Version")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(1);
+
                     b.HasKey("Id")
                         .HasName("PK_SmartObjects");
 
                     b.HasIndex("Name")
+                        .HasDatabaseName("IX_SmartObjects_Name");
+
+                    b.HasIndex("Name", "Version")
                         .IsUnique()
-                        .HasDatabaseName("UQ_SmartObjects_Name");
+                        .HasDatabaseName("UQ_SmartObjects_Name_Version");
 
                     b.ToTable("SmartObjects", (string)null);
                 });
@@ -553,12 +1264,20 @@ namespace WorkflowEngine.Infrastructure.Migrations
                         .HasMaxLength(255)
                         .HasColumnType("nvarchar(255)");
 
+                    b.Property<int>("FailedLoginCount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(0);
+
                     b.Property<string>("Group")
                         .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)")
                         .HasDefaultValue("General");
+
+                    b.Property<DateTime?>("LockoutEnd")
+                        .HasColumnType("datetime2");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -599,6 +1318,200 @@ namespace WorkflowEngine.Infrastructure.Migrations
                         .HasDatabaseName("UQ_SystemUsers_Email");
 
                     b.ToTable("SystemUsers", (string)null);
+                });
+
+            modelBuilder.Entity("WorkflowEngine.Domain.Entities.TaskAssignment", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
+                    b.Property<string>("ActorUserId")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("FromAssigneeId")
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<string>("TaskId")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("ToAssigneeId")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.Property<string>("ToAssigneeType")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.HasKey("Id")
+                        .HasName("PK_TaskAssignments");
+
+                    b.HasIndex("TaskId", "CreatedAt")
+                        .HasDatabaseName("IX_TaskAssignments_Task_CreatedAt");
+
+                    b.ToTable("TaskAssignments", (string)null);
+                });
+
+            modelBuilder.Entity("WorkflowEngine.Domain.Entities.TaskSlot", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("AssigneeUserId")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.Property<DateTime?>("ClaimedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Comments")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("CompletedByUserId")
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("OnBehalfOfUserId")
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.Property<string>("Outcome")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<string>("TaskId")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.HasKey("Id")
+                        .HasName("PK_TaskSlots");
+
+                    b.HasIndex("TaskId", "AssigneeUserId")
+                        .IsUnique()
+                        .HasDatabaseName("UQ_TaskSlots_Task_Assignee");
+
+                    b.ToTable("TaskSlots", (string)null);
+                });
+
+            modelBuilder.Entity("WorkflowEngine.Domain.Entities.UserAuditLog", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("ActorEmail")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.Property<string>("ActorId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("Details")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<DateTime>("OccurredAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("TargetEmail")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.Property<string>("TargetUserId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.HasKey("Id")
+                        .HasName("PK_UserAuditLogs");
+
+                    b.HasIndex("OccurredAt")
+                        .HasDatabaseName("IX_UserAuditLogs_OccurredAt");
+
+                    b.ToTable("UserAuditLogs", (string)null);
+                });
+
+            modelBuilder.Entity("WorkflowEngine.Domain.Entities.UserConnectionCredential", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("ConnectionId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("EncryptedSecretJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.HasKey("Id")
+                        .HasName("PK_UserConnectionCredentials");
+
+                    b.HasIndex("ConnectionId");
+
+                    b.HasIndex("UserId", "ConnectionId")
+                        .IsUnique()
+                        .HasDatabaseName("UQ_UserConnectionCredentials_User_Connection");
+
+                    b.ToTable("UserConnectionCredentials", (string)null);
                 });
 
             modelBuilder.Entity("WorkflowEngine.Domain.Entities.WorkflowAuditLog", b =>
@@ -874,6 +1787,17 @@ namespace WorkflowEngine.Infrastructure.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("nvarchar(20)");
 
+                    b.Property<string>("BranchId")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<DateTime?>("ClaimedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("ClaimedByUserId")
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
                     b.Property<string>("Comments")
                         .HasColumnType("nvarchar(max)");
 
@@ -884,7 +1808,17 @@ namespace WorkflowEngine.Infrastructure.Migrations
                         .HasMaxLength(255)
                         .HasColumnType("nvarchar(255)");
 
+                    b.Property<string>("CompletedByUserId")
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.Property<DateTime?>("DueAt")
+                        .HasColumnType("datetime2");
+
                     b.Property<DateTime?>("DueDate")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("EscalatedAt")
                         .HasColumnType("datetime2");
 
                     b.Property<string>("InstanceId")
@@ -892,10 +1826,41 @@ namespace WorkflowEngine.Infrastructure.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
 
+                    b.Property<string>("MetadataJson")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<string>("NodeId")
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("OnBehalfOfUserId")
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.Property<string>("OriginalAssigneeId")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)")
+                        .HasDefaultValue("");
+
+                    b.Property<string>("OriginalAssigneeType")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasDefaultValue("User");
+
+                    b.Property<int?>("QuorumCount")
+                        .HasColumnType("int");
+
+                    b.Property<string>("ResolutionPolicy")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)")
+                        .HasDefaultValue("Single");
 
                     b.Property<string>("SelectedOutcome")
                         .HasMaxLength(100)
@@ -911,6 +1876,10 @@ namespace WorkflowEngine.Infrastructure.Migrations
                         .HasMaxLength(255)
                         .HasColumnType("nvarchar(255)");
 
+                    b.Property<string>("TokenId")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
                     b.Property<int>("Version")
                         .IsConcurrencyToken()
                         .ValueGeneratedOnAdd()
@@ -922,10 +1891,76 @@ namespace WorkflowEngine.Infrastructure.Migrations
 
                     b.HasIndex("InstanceId");
 
+                    b.HasIndex("Status", "DueAt")
+                        .HasDatabaseName("IX_WorkflowTasks_Status_DueAt");
+
                     b.HasIndex("AssigneeId", "Status", "AssigneeType")
                         .HasDatabaseName("IX_WorkflowTasks_Assignee_Status");
 
                     b.ToTable("WorkflowTasks", (string)null);
+                });
+
+            modelBuilder.Entity("WorkflowEngine.Domain.Entities.WorkflowToken", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("BranchId")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("BranchVariablesJson")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("InstanceId")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("NodeId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("ParentTokenId")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("SplitNodeId")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(1);
+
+                    b.HasKey("Id")
+                        .HasName("PK_WorkflowTokens");
+
+                    b.HasIndex("InstanceId", "Status")
+                        .HasDatabaseName("IX_WorkflowTokens_Instance_Status");
+
+                    b.HasIndex("InstanceId", "SplitNodeId", "BranchId")
+                        .HasDatabaseName("IX_WorkflowTokens_Instance_Split_Branch");
+
+                    b.ToTable("WorkflowTokens", (string)null);
                 });
 
             modelBuilder.Entity("WorkflowEngine.Domain.Entities.WorkflowVersion", b =>
@@ -985,6 +2020,56 @@ namespace WorkflowEngine.Infrastructure.Migrations
                     b.Navigation("Instance");
                 });
 
+            modelBuilder.Entity("WorkflowEngine.Domain.Entities.ConnectionEnvironmentConfig", b =>
+                {
+                    b.HasOne("WorkflowEngine.Domain.Entities.Connection", "Connection")
+                        .WithMany("EnvironmentConfigs")
+                        .HasForeignKey("ConnectionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Connection");
+                });
+
+            modelBuilder.Entity("WorkflowEngine.Domain.Entities.ConnectionPermission", b =>
+                {
+                    b.HasOne("WorkflowEngine.Domain.Entities.Connection", "Connection")
+                        .WithMany("Permissions")
+                        .HasForeignKey("ConnectionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Connection");
+                });
+
+            modelBuilder.Entity("WorkflowEngine.Domain.Entities.ConnectionUsageLog", b =>
+                {
+                    b.HasOne("WorkflowEngine.Domain.Entities.Connection", "Connection")
+                        .WithMany("UsageLogs")
+                        .HasForeignKey("ConnectionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Connection");
+                });
+
+            modelBuilder.Entity("WorkflowEngine.Domain.Entities.ExternalUserLogin", b =>
+                {
+                    b.HasOne("WorkflowEngine.Domain.Entities.AuthProvider", null)
+                        .WithMany()
+                        .HasForeignKey("ProviderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("FK_ExternalUserLogins_AuthProviders");
+
+                    b.HasOne("WorkflowEngine.Domain.Entities.SystemUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("FK_ExternalUserLogins_SystemUsers");
+                });
+
             modelBuilder.Entity("WorkflowEngine.Domain.Entities.InstanceEvent", b =>
                 {
                     b.HasOne("WorkflowEngine.Domain.Entities.WorkflowInstance", "Instance")
@@ -993,6 +2078,18 @@ namespace WorkflowEngine.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("FK_InstanceEvents_Instances");
+
+                    b.Navigation("Instance");
+                });
+
+            modelBuilder.Entity("WorkflowEngine.Domain.Entities.JoinState", b =>
+                {
+                    b.HasOne("WorkflowEngine.Domain.Entities.WorkflowInstance", "Instance")
+                        .WithMany("JoinStates")
+                        .HasForeignKey("InstanceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("FK_JoinStates_Instances");
 
                     b.Navigation("Instance");
                 });
@@ -1009,6 +2106,14 @@ namespace WorkflowEngine.Infrastructure.Migrations
                     b.Navigation("Instance");
                 });
 
+            modelBuilder.Entity("WorkflowEngine.Domain.Entities.SmartFormSubmissionEntity", b =>
+                {
+                    b.HasOne("WorkflowEngine.Domain.Entities.SmartObjectRecordEntity", null)
+                        .WithMany()
+                        .HasForeignKey("SmartObjectRecordId")
+                        .OnDelete(DeleteBehavior.SetNull);
+                });
+
             modelBuilder.Entity("WorkflowEngine.Domain.Entities.SmartFormVersion", b =>
                 {
                     b.HasOne("WorkflowEngine.Domain.Entities.SmartFormEntity", "SmartForm")
@@ -1019,6 +2124,39 @@ namespace WorkflowEngine.Infrastructure.Migrations
                         .HasConstraintName("FK_SmartFormVersions_SmartForms");
 
                     b.Navigation("SmartForm");
+                });
+
+            modelBuilder.Entity("WorkflowEngine.Domain.Entities.TaskAssignment", b =>
+                {
+                    b.HasOne("WorkflowEngine.Domain.Entities.WorkflowTask", "Task")
+                        .WithMany("Assignments")
+                        .HasForeignKey("TaskId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Task");
+                });
+
+            modelBuilder.Entity("WorkflowEngine.Domain.Entities.TaskSlot", b =>
+                {
+                    b.HasOne("WorkflowEngine.Domain.Entities.WorkflowTask", "Task")
+                        .WithMany("Slots")
+                        .HasForeignKey("TaskId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Task");
+                });
+
+            modelBuilder.Entity("WorkflowEngine.Domain.Entities.UserConnectionCredential", b =>
+                {
+                    b.HasOne("WorkflowEngine.Domain.Entities.Connection", "Connection")
+                        .WithMany("UserCredentials")
+                        .HasForeignKey("ConnectionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Connection");
                 });
 
             modelBuilder.Entity("WorkflowEngine.Domain.Entities.WorkflowAuditLog", b =>
@@ -1069,6 +2207,18 @@ namespace WorkflowEngine.Infrastructure.Migrations
                     b.Navigation("Instance");
                 });
 
+            modelBuilder.Entity("WorkflowEngine.Domain.Entities.WorkflowToken", b =>
+                {
+                    b.HasOne("WorkflowEngine.Domain.Entities.WorkflowInstance", "Instance")
+                        .WithMany("Tokens")
+                        .HasForeignKey("InstanceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("FK_WorkflowTokens_Instances");
+
+                    b.Navigation("Instance");
+                });
+
             modelBuilder.Entity("WorkflowEngine.Domain.Entities.WorkflowVersion", b =>
                 {
                     b.HasOne("WorkflowEngine.Domain.Entities.WorkflowDefinition", "Definition")
@@ -1079,6 +2229,17 @@ namespace WorkflowEngine.Infrastructure.Migrations
                         .HasConstraintName("FK_WorkflowVersions_Definitions");
 
                     b.Navigation("Definition");
+                });
+
+            modelBuilder.Entity("WorkflowEngine.Domain.Entities.Connection", b =>
+                {
+                    b.Navigation("EnvironmentConfigs");
+
+                    b.Navigation("Permissions");
+
+                    b.Navigation("UsageLogs");
+
+                    b.Navigation("UserCredentials");
                 });
 
             modelBuilder.Entity("WorkflowEngine.Domain.Entities.SmartFormEntity", b =>
@@ -1099,9 +2260,20 @@ namespace WorkflowEngine.Infrastructure.Migrations
 
                     b.Navigation("Events");
 
+                    b.Navigation("JoinStates");
+
                     b.Navigation("NodeExecutions");
 
                     b.Navigation("Tasks");
+
+                    b.Navigation("Tokens");
+                });
+
+            modelBuilder.Entity("WorkflowEngine.Domain.Entities.WorkflowTask", b =>
+                {
+                    b.Navigation("Assignments");
+
+                    b.Navigation("Slots");
                 });
 #pragma warning restore 612, 618
         }

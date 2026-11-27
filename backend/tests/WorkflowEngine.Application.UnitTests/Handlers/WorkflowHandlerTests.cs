@@ -6,6 +6,7 @@ using WorkflowEngine.Application.Features.Instances.Commands;
 using WorkflowEngine.Application.Features.Instances.Handlers;
 using WorkflowEngine.Application.Features.SmartForms.Validation;
 using WorkflowEngine.Application.Features.Tasks.Commands;
+using WorkflowEngine.Application.Features.Tasks.DTOs;
 using WorkflowEngine.Application.Features.Tasks.Handlers;
 using WorkflowEngine.Application.Services;
 using WorkflowEngine.Domain.Entities;
@@ -84,6 +85,10 @@ public class WorkflowHandlerTests
 
         taskRepoMock.Setup(r => r.GetByIdWithInstanceAsync("task-123", It.IsAny<CancellationToken>()))
             .ReturnsAsync(task);
+        uowMock.Setup(u => u.ExecuteInTransactionAsync(
+                It.IsAny<Func<CancellationToken, Task<TaskCompletedResult>>>(),
+                It.IsAny<CancellationToken>()))
+            .Returns((Func<CancellationToken, Task<TaskCompletedResult>> work, CancellationToken token) => work(token));
 
         var handler = new WorkflowTaskHandlers(
             taskRepoMock.Object,

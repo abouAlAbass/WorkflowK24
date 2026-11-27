@@ -19,6 +19,10 @@ import { SendEmailNode } from '../nodes/SendEmailNode';
 import { EndNode } from '../nodes/EndNode';
 import { DecisionNode } from '../nodes/DecisionNode';
 import { StageNode } from '../nodes/StageNode';
+import { HttpNode } from '../nodes/HttpNode';
+import { SmartObjectNode } from '../nodes/SmartObjectNode';
+import { ParallelSplitNode } from '../nodes/ParallelSplitNode';
+import { ParallelJoinNode } from '../nodes/ParallelJoinNode';
 import { CustomEdge } from './CustomEdge';
 import { ArrowLeft, ChevronRight, Layers, Sparkles } from 'lucide-react';
 import type { NodeType, WorkflowNodeCustomData } from '../../types/workflow';
@@ -51,6 +55,10 @@ const CanvasContent: React.FC = () => {
     end: EndNode,
     decision: DecisionNode,
     stage: StageNode,
+    http: HttpNode,
+    smartObject: SmartObjectNode,
+    parallelSplit: ParallelSplitNode,
+    parallelJoin: ParallelJoinNode,
   }), []);
 
   const edgeTypes = useMemo(() => ({
@@ -215,6 +223,9 @@ const CanvasContent: React.FC = () => {
                 case 'end': return '#DC2626';
                 case 'decision': return '#7C3AED';
                 case 'stage': return '#6366F1';
+                case 'http': return '#0891B2';
+                case 'parallelSplit': return '#0284C7';
+                case 'parallelJoin': return '#0F766E';
                 default: return '#94A3B8';
               }
             }}

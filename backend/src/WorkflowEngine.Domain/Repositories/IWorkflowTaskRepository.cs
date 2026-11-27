@@ -5,7 +5,7 @@ using TaskStatus = WorkflowEngine.Domain.Enums.TaskStatus;
 namespace WorkflowEngine.Domain.Repositories;
 
 /// <summary>
-/// Port for retrieving and managing workflow tasks.
+/// Port for retrieving and managing workflow tasks, slots, and assignment history.
 /// </summary>
 public interface IWorkflowTaskRepository
 {
@@ -16,9 +16,12 @@ public interface IWorkflowTaskRepository
         IReadOnlyList<string> userGroups,
         bool isAdmin,
         TaskStatus? status = null,
-        CancellationToken ct = default);
+        CancellationToken ct = default,
+        IReadOnlyList<string>? userRoles = null);
     Task<IReadOnlyList<WorkflowTask>> GetByAssigneeAsync(string assigneeId, TaskStatus? status = null, CancellationToken ct = default);
     Task<IReadOnlyList<WorkflowTask>> GetPendingTasksForInstanceAsync(string instanceId, CancellationToken ct = default);
+    Task<IReadOnlyList<TaskAssignment>> GetAssignmentsAsync(string taskId, CancellationToken ct = default);
+    Task<IReadOnlyList<WorkflowTask>> GetOverdueTasksAsync(DateTime utcNow, CancellationToken ct = default);
     void Add(WorkflowTask task);
     void Update(WorkflowTask task);
 }

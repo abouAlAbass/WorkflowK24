@@ -33,6 +33,8 @@ public class WorkflowInstanceRepository : IWorkflowInstanceRepository
             .Include(i => i.Errors)
             .Include(i => i.AuditLogs)
             .Include(i => i.NodeExecutions)
+            .Include(i => i.Tokens)
+            .Include(i => i.JoinStates)
             .FirstOrDefaultAsync(i => i.InstanceId == instanceId, ct);
     }
 

@@ -13,7 +13,10 @@ public interface ISmartFormRepository
     Task<bool> DeleteAsync(string id, CancellationToken ct = default);
 
     Task AddSubmissionAsync(SmartFormSubmissionEntity submission, CancellationToken ct = default);
+    Task UpdateSubmissionAsync(SmartFormSubmissionEntity submission, CancellationToken ct = default);
+    Task<SmartFormSubmissionEntity?> GetSubmissionByIdAsync(string submissionId, CancellationToken ct = default);
     Task<IReadOnlyList<SmartFormSubmissionEntity>> GetSubmissionsAsync(string smartFormId, CancellationToken ct = default);
+    Task<IReadOnlyList<SmartFormSubmissionEntity>> GetSubmissionsByUserAsync(string submittedBy, string? alternateUserId = null, CancellationToken ct = default);
     Task<SmartFormSubmissionEntity?> GetSubmissionByIdempotencyKeyAsync(string smartFormId, string idempotencyKey, CancellationToken ct = default);
 
     Task AddAttachmentAsync(FormAttachmentEntity attachment, CancellationToken ct = default);

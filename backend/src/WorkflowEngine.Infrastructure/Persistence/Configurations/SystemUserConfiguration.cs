@@ -49,6 +49,13 @@ public class SystemUserConfiguration : IEntityTypeConfiguration<SystemUser>
             .HasDefaultValue("Active")
             .IsRequired();
 
+        builder.Property(u => u.FailedLoginCount)
+            .HasDefaultValue(0)
+            .IsRequired();
+
+        builder.Property(u => u.LockoutEnd)
+            .IsRequired(false);
+
         builder.Property(u => u.AvatarUrl)
             .HasMaxLength(1000)
             .IsRequired(false);

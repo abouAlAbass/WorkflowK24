@@ -1,5 +1,7 @@
 using System.Text.Json;
+using WorkflowEngine.Application.Features.SmartObjects.Commands;
 using WorkflowEngine.Application.Features.SmartObjects.DTOs;
+using WorkflowEngine.Domain.Enums;
 using WorkflowEngine.Domain.Repositories;
 
 namespace WorkflowEngine.Application.Features.SmartObjects.Queries;
@@ -30,7 +32,20 @@ public static class GetSmartObjectsHandler
                     new("WorkflowKey", "String", false, true),
                     new("Name", "String", false, true)
                 }),
-                recordsCount: 3
+                recordsCount: 3,
+                version: 1,
+                status: SmartObjectStatus.Published,
+                methodsJson: JsonSerializer.Serialize(new List<SmartObjectMethodDto>
+                {
+                    new(
+                        "GetById",
+                        "read",
+                        new List<SmartObjectMethodParameterDto> { new("DefinitionID", "number", true) },
+                        new List<SmartObjectMethodParameterDto> { new("WorkflowKey", "string"), new("Name", "string") },
+                        Idempotent: true,
+                        Binding: new SmartObjectMethodBindingDto("InternalStore", RecordKeyInput: "DefinitionID"))
+                }),
+                publishedBy: "system"
             );
 
             await repository.AddAsync(defaultSo, ct);
@@ -41,27 +56,6 @@ public static class GetSmartObjectsHandler
             entities = await repository.GetAllAsync(ct);
         }
 
-        return entities.Select(e =>
-        {
-            var fields = new List<SmartObjectFieldDto>();
-            try
-            {
-                fields = JsonSerializer.Deserialize<List<SmartObjectFieldDto>>(e.FieldsJson) ?? new();
-            }
-            catch
-            {
-                // ignore
-            }
-
-            return new SmartObjectDto(
-                e.Id,
-                e.Name,
-                e.DisplayName,
-                e.Description,
-                e.Category,
-                e.RecordsCount,
-                fields
-            );
-        }).ToList();
+        return entities.Select(e => CreateSmartObjectHandler.MapToDto(e)).ToList();
     }
 }

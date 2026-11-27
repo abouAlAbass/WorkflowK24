@@ -10,7 +10,8 @@ public record UpdateSmartObjectCommand(
     [property: JsonPropertyName("displayName")] string? DisplayName,
     [property: JsonPropertyName("description")] string? Description,
     [property: JsonPropertyName("category")] string? Category,
-    [property: JsonPropertyName("fields")] List<SmartObjectFieldDto>? Fields
+    [property: JsonPropertyName("fields")] List<SmartObjectFieldDto>? Fields,
+    [property: JsonPropertyName("methods")] List<SmartObjectMethodDto>? Methods = null
 );
 
 public static class UpdateSmartObjectHandler
@@ -24,31 +25,57 @@ public static class UpdateSmartObjectHandler
         if (entity == null) return null;
 
         string? fieldsJson = command.Fields != null ? JsonSerializer.Serialize(command.Fields) : null;
+        string? methodsJson = command.Methods != null ? JsonSerializer.Serialize(command.Methods) : null;
+
         entity.UpdateMetadata(
             command.DisplayName ?? entity.DisplayName,
             command.Description ?? entity.Description,
             command.Category ?? entity.Category,
-            fieldsJson
+            fieldsJson,
+            methodsJson
         );
 
         await repository.UpdateAsync(entity, ct);
 
-        var fields = new List<SmartObjectFieldDto>();
-        try
-        {
-            fields = JsonSerializer.Deserialize<List<SmartObjectFieldDto>>(entity.FieldsJson) ?? new();
-        }
-        catch { }
+        return CreateSmartObjectHandler.MapToDto(entity);
+    }
+}
 
-        return new SmartObjectDto(
-            entity.Id,
-            entity.Name,
-            entity.DisplayName,
-            entity.Description,
-            entity.Category,
-            entity.RecordsCount,
-            fields
-        );
+public record PublishSmartObjectCommand(string Id, string PublishedBy);
+
+public static class PublishSmartObjectHandler
+{
+    public static async Task<SmartObjectDto?> Handle(
+        PublishSmartObjectCommand command,
+        ISmartObjectRepository repository,
+        CancellationToken ct)
+    {
+        var entity = await repository.GetByIdAsync(command.Id, ct);
+        if (entity == null) return null;
+
+        entity.Publish(command.PublishedBy);
+        await repository.UpdateAsync(entity, ct);
+
+        return CreateSmartObjectHandler.MapToDto(entity);
+    }
+}
+
+public record ArchiveSmartObjectCommand(string Id);
+
+public static class ArchiveSmartObjectHandler
+{
+    public static async Task<SmartObjectDto?> Handle(
+        ArchiveSmartObjectCommand command,
+        ISmartObjectRepository repository,
+        CancellationToken ct)
+    {
+        var entity = await repository.GetByIdAsync(command.Id, ct);
+        if (entity == null) return null;
+
+        entity.Archive();
+        await repository.UpdateAsync(entity, ct);
+
+        return CreateSmartObjectHandler.MapToDto(entity);
     }
 }
 

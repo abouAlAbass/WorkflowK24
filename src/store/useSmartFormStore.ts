@@ -5,10 +5,12 @@ import type {
   SmartFormSubmission,
   SmartFormVersionSummary,
   SmartFormVersionDetail,
-  FormAttachmentValue
+  FormAttachmentValue,
+  FormRule
 } from '../types/smartform';
 import type { SmartObjectEntity } from '../types/workflow';
 import { getWorkflowRepository, repositoryManager } from '../services/repositoryManager';
+import { analyzeFormRuleGraph } from '../utils/jsonLogicEngine';
 
 const DEMO_FORMS_KEY = 'tamam_smartforms_v1';
 const DEMO_SUBMISSIONS_KEY = 'tamam_smartform_submissions_v1';
@@ -249,6 +251,7 @@ interface SmartFormStoreState {
   versionsByForm: Record<string, SmartFormVersionSummary[]>;
   versionDetails: Record<string, SmartFormVersionDetail>;
   submissions: Record<string, SmartFormSubmission[]>;
+  mySubmissions: SmartFormSubmission[];
   isLoading: boolean;
 
   syncForms: () => Promise<void>;
@@ -268,10 +271,15 @@ interface SmartFormStoreState {
   removeFieldFromActiveForm: (fieldId: string) => void;
   moveFieldInActiveForm: (fromIndex: number, toIndex: number) => void;
   updateActiveFormMeta: (updates: Partial<SmartFormDefinition>) => void;
+  addRuleToActiveForm: (rule: FormRule) => void;
+  updateRuleInActiveForm: (ruleId: string, updates: Partial<FormRule>) => void;
+  removeRuleFromActiveForm: (ruleId: string) => void;
 
   uploadAttachment: (file: File) => Promise<FormAttachmentValue>;
   downloadAttachment: (attachment: FormAttachmentValue) => Promise<void>;
-  submitForm: (formId: string, data: Record<string, unknown>, idempotencyKey?: string) => Promise<SmartFormSubmission>;
+  fetchMySubmissions: () => Promise<SmartFormSubmission[]>;
+  saveDraft: (formId: string, data: Record<string, unknown>, draftId?: string) => Promise<SmartFormSubmission>;
+  submitForm: (formId: string, data: Record<string, unknown>, idempotencyKey?: string, draftId?: string) => Promise<SmartFormSubmission>;
 }
 
 const initialForms = loadDemoForms();
@@ -312,6 +320,7 @@ export const useSmartFormStore = create<SmartFormStoreState>((set, get) => ({
   versionsByForm: initialVersionState.versionsByForm,
   versionDetails: initialVersionState.versionDetails,
   submissions: {},
+  mySubmissions: [],
   isLoading: false,
 
   syncForms: async () => {
@@ -652,13 +661,26 @@ export const useSmartFormStore = create<SmartFormStoreState>((set, get) => ({
         );
       }
 
+      if (res?.status === 422) {
+        const errBody = await res.text();
+        let msg = 'CYCLIC_FORM_RULE: Circular dependency detected in form rules.';
+        try {
+          const parsed = JSON.parse(errBody);
+          if (parsed?.error) msg = parsed.error;
+        } catch {
+          if (errBody) msg = errBody;
+        }
+        throw new Error(msg);
+      }
+
       if (res?.ok) {
         try {
           const saved: SmartFormDefinition = await res.json();
           stamped = {
             ...stamped,
             ...saved,
-            fields: saved.draftFields ?? saved.fields ?? stamped.fields
+            fields: saved.draftFields ?? saved.fields ?? stamped.fields,
+            rules: saved.draftRules ?? saved.rules ?? stamped.rules
           };
           void get().fetchFormVersions(stamped.id);
         } catch {
@@ -666,13 +688,22 @@ export const useSmartFormStore = create<SmartFormStoreState>((set, get) => ({
         }
       }
     } else {
+      // Demo mode: enforce acyclic DAG before saving
+      const graph = analyzeFormRuleGraph(stamped.fields, stamped.rules);
+      if (graph.hasCycle) {
+        throw new Error(
+          `CYCLIC_FORM_RULE: Circular dependency detected in form rules (${graph.cyclePath.join(' -> ')}).`
+        );
+      }
+
       // Demo mode: create a new Draft version if the latest version is Published
       const existingVersions = get().versionsByForm[stamped.id] || [];
       const existingDraft = existingVersions.find((v) => v.status === 'Draft');
       if (existingDraft) {
         const updatedDetail: SmartFormVersionDetail = {
           ...existingDraft,
-          fields: stamped.fields
+          fields: stamped.fields,
+          rules: stamped.rules
         };
         set((s) => ({
           versionDetails: { ...s.versionDetails, [`${stamped.id}:${existingDraft.id}`]: updatedDetail }
@@ -686,6 +717,7 @@ export const useSmartFormStore = create<SmartFormStoreState>((set, get) => ({
           versionNumber: nextNum,
           status: 'Draft',
           fields: stamped.fields,
+          rules: stamped.rules,
           publishedAt: null,
           publishedBy: null,
           createdAt: stamped.updatedAt
@@ -697,6 +729,7 @@ export const useSmartFormStore = create<SmartFormStoreState>((set, get) => ({
           latestVersionStatus: 'Draft',
           hasUnpublishedDraft: true,
           draftFields: stamped.fields,
+          draftRules: stamped.rules ?? [],
           version: (stamped.version || 1) + 1
         };
         set((s) => ({
@@ -902,6 +935,69 @@ export const useSmartFormStore = create<SmartFormStoreState>((set, get) => ({
     set({ forms: updated });
   },
 
+  addRuleToActiveForm: (rule) => {
+    const { selectedFormId, forms } = get();
+    const updated = forms.map((f) => {
+      if (f.id !== selectedFormId) return f;
+      const nextRules = [...(f.rules || []), rule];
+      const alreadyDraft = f.hasUnpublishedDraft || f.latestVersionStatus === 'Draft';
+      const nextNum = alreadyDraft ? (f.latestVersionNumber || 1) : (f.latestVersionNumber || 1) + 1;
+      return {
+        ...f,
+        rules: nextRules,
+        draftRules: nextRules,
+        latestVersionNumber: nextNum,
+        latestVersionStatus: 'Draft' as const,
+        hasUnpublishedDraft: true,
+        updatedAt: new Date().toISOString()
+      };
+    });
+    saveDemoForms(updated);
+    set({ forms: updated });
+  },
+
+  updateRuleInActiveForm: (ruleId, updates) => {
+    const { selectedFormId, forms } = get();
+    const updated = forms.map((f) => {
+      if (f.id !== selectedFormId) return f;
+      const nextRules = (f.rules || []).map((r) => (r.id === ruleId ? { ...r, ...updates } : r));
+      const alreadyDraft = f.hasUnpublishedDraft || f.latestVersionStatus === 'Draft';
+      const nextNum = alreadyDraft ? (f.latestVersionNumber || 1) : (f.latestVersionNumber || 1) + 1;
+      return {
+        ...f,
+        rules: nextRules,
+        draftRules: nextRules,
+        latestVersionNumber: nextNum,
+        latestVersionStatus: 'Draft' as const,
+        hasUnpublishedDraft: true,
+        updatedAt: new Date().toISOString()
+      };
+    });
+    saveDemoForms(updated);
+    set({ forms: updated });
+  },
+
+  removeRuleFromActiveForm: (ruleId) => {
+    const { selectedFormId, forms } = get();
+    const updated = forms.map((f) => {
+      if (f.id !== selectedFormId) return f;
+      const nextRules = (f.rules || []).filter((r) => r.id !== ruleId);
+      const alreadyDraft = f.hasUnpublishedDraft || f.latestVersionStatus === 'Draft';
+      const nextNum = alreadyDraft ? (f.latestVersionNumber || 1) : (f.latestVersionNumber || 1) + 1;
+      return {
+        ...f,
+        rules: nextRules,
+        draftRules: nextRules,
+        latestVersionNumber: nextNum,
+        latestVersionStatus: 'Draft' as const,
+        hasUnpublishedDraft: true,
+        updatedAt: new Date().toISOString()
+      };
+    });
+    saveDemoForms(updated);
+    set({ forms: updated });
+  },
+
   uploadAttachment: async (file) => {
     const dataUrl = await new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
@@ -1007,7 +1103,118 @@ export const useSmartFormStore = create<SmartFormStoreState>((set, get) => ({
     }
   },
 
-  submitForm: async (formId, data, idempotencyKey) => {
+  fetchMySubmissions: async () => {
+    const repo = getWorkflowRepository();
+    const userEmail = repo.getAuthSession()?.user.email || 'mohamed.fetni@enterprise.com';
+
+    if (repositoryManager.getMode() === 'connected') {
+      const { baseUrl, headers } = getApiConfig();
+      const res = await fetch(`${baseUrl}/smartforms/my-submissions`, { headers });
+      if (res.ok) {
+        const list: SmartFormSubmission[] = await res.json();
+        set({ mySubmissions: list });
+        return list;
+      }
+      return get().mySubmissions;
+    }
+
+    // Demo mode: aggregate localStorage submissions + drafts for the current user
+    try {
+      const raw = localStorage.getItem(DEMO_SUBMISSIONS_KEY);
+      const parsed: Record<string, SmartFormSubmission[]> = raw ? JSON.parse(raw) : {};
+      const formsById = new Map(get().forms.map((f) => [f.id, f]));
+      const all: SmartFormSubmission[] = [];
+      for (const subs of Object.values(parsed)) {
+        if (!Array.isArray(subs)) continue;
+        for (const s of subs) {
+          if (!s.submittedBy || s.submittedBy.toLowerCase() === userEmail.toLowerCase()) {
+            const fm = formsById.get(s.smartFormId);
+            all.push({
+              ...s,
+              status: s.status || 'Submitted',
+              smartFormTitle: s.smartFormTitle || fm?.title || s.smartFormId,
+              smartFormCategory: s.smartFormCategory || fm?.category || 'General'
+            });
+          }
+        }
+      }
+      all.sort((a, b) =>
+        new Date(b.updatedAt || b.submittedAt).getTime() - new Date(a.updatedAt || a.submittedAt).getTime()
+      );
+      set({ mySubmissions: all });
+      return all;
+    } catch {
+      return get().mySubmissions;
+    }
+  },
+
+  saveDraft: async (formId, data, draftId) => {
+    const form = get().forms.find((f) => f.id === formId);
+    if (!form) throw new Error(`Form '${formId}' not found.`);
+
+    const repo = getWorkflowRepository();
+    const userEmail = repo.getAuthSession()?.user.email || 'mohamed.fetni@enterprise.com';
+
+    if (repositoryManager.getMode() === 'connected') {
+      const { baseUrl, headers } = getApiConfig();
+      const res = await fetch(`${baseUrl}/smartforms/${encodeURIComponent(formId)}/drafts`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ data, draftId: draftId || null })
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        let message = `Failed to save draft (${res.status}).`;
+        try {
+          const parsed = JSON.parse(errText);
+          if (parsed?.error) message = parsed.error;
+        } catch {
+          if (errText) message = errText;
+        }
+        throw new Error(message);
+      }
+      const savedDraft: SmartFormSubmission = await res.json();
+      set((s) => ({
+        mySubmissions: [
+          savedDraft,
+          ...s.mySubmissions.filter((item) => item.id !== savedDraft.id)
+        ]
+      }));
+      return savedDraft;
+    }
+
+    // Demo mode draft persistence
+    const now = new Date().toISOString();
+    const draft: SmartFormSubmission = {
+      id: draftId || `drf-${Date.now().toString(36)}`,
+      smartFormId: formId,
+      submittedBy: userEmail,
+      data,
+      linkedInstanceId: null,
+      submittedAt: now,
+      updatedAt: now,
+      status: 'Draft',
+      smartFormTitle: form.title,
+      smartFormCategory: form.category
+    };
+
+    try {
+      const prevRaw = localStorage.getItem(DEMO_SUBMISSIONS_KEY);
+      const prev: Record<string, SmartFormSubmission[]> = prevRaw ? JSON.parse(prevRaw) : {};
+      const existingList = Array.isArray(prev[formId]) ? prev[formId] : [];
+      prev[formId] = [draft, ...existingList.filter((item) => item.id !== draft.id)];
+      localStorage.setItem(DEMO_SUBMISSIONS_KEY, JSON.stringify(prev));
+    } catch {
+      // ignore
+    }
+
+    set((s) => ({
+      mySubmissions: [draft, ...s.mySubmissions.filter((item) => item.id !== draft.id)]
+    }));
+    return draft;
+  },
+
+  submitForm: async (formId, data, idempotencyKey, draftId) => {
     const form = get().forms.find((f) => f.id === formId);
     if (!form) throw new Error(`Form '${formId}' not found.`);
 
@@ -1019,7 +1226,7 @@ export const useSmartFormStore = create<SmartFormStoreState>((set, get) => ({
       const res = await fetch(`${baseUrl}/smartforms/${encodeURIComponent(formId)}/submit`, {
         method: 'POST',
         headers: { ...headers, 'Idempotency-Key': idempotencyKey || generateIdempotencyKey() },
-        body: JSON.stringify({ data, startLinkedWorkflow: true })
+        body: JSON.stringify({ data, startLinkedWorkflow: true, draftId: draftId || null })
       });
       if (res.ok) {
         const sub: SmartFormSubmission = await res.json();
@@ -1029,8 +1236,9 @@ export const useSmartFormStore = create<SmartFormStoreState>((set, get) => ({
           ),
           submissions: {
             ...s.submissions,
-            [formId]: [sub, ...(s.submissions[formId] || [])]
-          }
+            [formId]: [sub, ...(s.submissions[formId] || []).filter((x) => x.id !== sub.id)]
+          },
+          mySubmissions: [sub, ...s.mySubmissions.filter((x) => x.id !== sub.id)]
         }));
         return sub;
       }
@@ -1077,13 +1285,19 @@ export const useSmartFormStore = create<SmartFormStoreState>((set, get) => ({
       linkedInstanceId = started.id;
     }
 
+    const now = new Date().toISOString();
     const demoSub: SmartFormSubmission = {
-      id: `SUB-${Math.floor(1000 + Math.random() * 9000)}`,
+      id: draftId || `SUB-${Math.floor(1000 + Math.random() * 9000)}`,
       smartFormId: formId,
       submittedBy: userEmail,
       data,
       linkedInstanceId,
-      submittedAt: new Date().toISOString()
+      submittedAt: now,
+      updatedAt: now,
+      status: 'Submitted',
+      smartFormTitle: form.title,
+      smartFormCategory: form.category,
+      instanceStatus: linkedInstanceId ? 'RUNNING' : null
     };
 
     const updatedForms = get().forms.map((f) =>
@@ -1094,7 +1308,8 @@ export const useSmartFormStore = create<SmartFormStoreState>((set, get) => ({
     try {
       const prevRaw = localStorage.getItem(DEMO_SUBMISSIONS_KEY);
       const prev = prevRaw ? JSON.parse(prevRaw) : {};
-      prev[formId] = [demoSub, ...(prev[formId] || [])];
+      const existingList: SmartFormSubmission[] = Array.isArray(prev[formId]) ? prev[formId] : [];
+      prev[formId] = [demoSub, ...existingList.filter((x) => x.id !== demoSub.id)];
       localStorage.setItem(DEMO_SUBMISSIONS_KEY, JSON.stringify(prev));
     } catch {
       // ignore
@@ -1104,8 +1319,9 @@ export const useSmartFormStore = create<SmartFormStoreState>((set, get) => ({
       forms: updatedForms,
       submissions: {
         ...s.submissions,
-        [formId]: [demoSub, ...(s.submissions[formId] || [])]
-      }
+        [formId]: [demoSub, ...(s.submissions[formId] || []).filter((x) => x.id !== demoSub.id)]
+      },
+      mySubmissions: [demoSub, ...s.mySubmissions.filter((x) => x.id !== demoSub.id)]
     }));
 
     return demoSub;

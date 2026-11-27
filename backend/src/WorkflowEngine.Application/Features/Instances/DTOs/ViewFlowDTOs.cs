@@ -33,6 +33,26 @@ public record InstanceEventDto(
     DateTime CreatedAt
 );
 
+public record ViewFlowTokenDto(
+    string Id,
+    string? ParentTokenId,
+    string NodeId,
+    string Status,
+    string? BranchId,
+    string? SplitNodeId,
+    int Version
+);
+
+public record ViewFlowJoinStateDto(
+    string Id,
+    string SplitNodeId,
+    string JoinNodeId,
+    int ExpectedCount,
+    int ArrivedCount,
+    bool JoinFired,
+    int Version
+);
+
 public record ViewFlowDto(
     ViewFlowInstanceDto Instance,
     string DefinitionJson,
@@ -40,7 +60,9 @@ public record ViewFlowDto(
     IReadOnlyList<string> ActiveNodes,
     IReadOnlyList<string> ActiveTokens,
     IReadOnlyList<InstanceEventDto> Timeline,
-    Dictionary<string, object?> Variables
+    Dictionary<string, object?> Variables,
+    IReadOnlyList<ViewFlowTokenDto>? Tokens = null,
+    IReadOnlyList<ViewFlowJoinStateDto>? JoinStates = null
 );
 
 public record InstanceEventsPageDto(

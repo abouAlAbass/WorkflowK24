@@ -55,7 +55,30 @@ public enum TaskStatus
 public enum AssigneeType
 {
     User = 1,
-    Group = 2
+    Group = 2,
+    Role = 3
+}
+
+/// <summary>
+/// Resolution policy governing how a workflow task (especially group/role tasks) is completed.
+/// </summary>
+public enum TaskResolutionPolicy
+{
+    Single = 1,
+    Claim = 2,
+    Consensus = 3,
+    Quorum = 4
+}
+
+/// <summary>
+/// Lifecycle status of an individual approval slot within a group/role task.
+/// </summary>
+public enum TaskSlotStatus
+{
+    Pending = 1,
+    Claimed = 2,
+    Completed = 3,
+    Released = 4
 }
 
 /// <summary>
@@ -81,4 +104,27 @@ public enum SmartFormVersionStatus
     Draft = 0,
     Published = 1,
     Archived = 2
+}
+
+/// <summary>
+/// Lifecycle status of a versioned SmartObject contract (ObjectKey@Version).
+/// Draft versions can be modified; Published and Archived versions are strictly immutable.
+/// </summary>
+public enum SmartObjectStatus
+{
+    Draft = 0,
+    Published = 1,
+    Archived = 2
+}
+
+/// <summary>
+/// Execution lifecycle status of a parallel workflow execution token.
+/// </summary>
+public enum TokenStatus
+{
+    Active = 1,
+    Waiting = 2,
+    Completed = 3,
+    Cancelled = 4,
+    Faulted = 5
 }

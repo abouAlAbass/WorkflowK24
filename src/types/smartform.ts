@@ -8,7 +8,10 @@ export type SmartFormFieldType =
   | 'checkbox'
   | 'select'
   | 'repeater'
-  | 'file';
+  | 'file'
+  | 'peoplePicker'
+  | 'signature'
+  | 'lookup';
 
 export type VisibilityOperator =
   | 'equals'
@@ -24,11 +27,30 @@ export interface SmartFormVisibilityRule {
   value: string;
 }
 
+export type FormRuleEffect = 'visible' | 'required' | 'readOnly' | 'computedValue';
+
+export type JsonLogicValue =
+  | string
+  | number
+  | boolean
+  | null
+  | JsonLogicValue[]
+  | { [operator: string]: JsonLogicValue | JsonLogicValue[] };
+
+export interface FormRule {
+  id: string;
+  targetField: string;
+  effect: FormRuleEffect;
+  conditionJsonLogic?: JsonLogicValue | null;
+  expressionJsonLogic?: JsonLogicValue | null;
+}
+
 export interface SmartFormRepeaterColumn {
   name: string;
   label: string;
-  type: 'text' | 'number' | 'date';
+  type: 'text' | 'number' | 'date' | 'select';
   required?: boolean;
+  options?: string[];
 }
 
 export interface SmartFormField {
@@ -64,6 +86,7 @@ export interface SmartFormVersionSummary {
 
 export interface SmartFormVersionDetail extends SmartFormVersionSummary {
   fields: SmartFormField[];
+  rules?: FormRule[];
 }
 
 export interface SmartFormDefinition {
@@ -77,6 +100,7 @@ export interface SmartFormDefinition {
   status: 'Draft' | 'Published';
   submissionsCount: number;
   fields: SmartFormField[];
+  rules?: FormRule[];
   updatedAt: string;
   /** Optimistic-concurrency token returned by the API; sent back as expectedVersion on update. */
   version?: number;
@@ -86,6 +110,7 @@ export interface SmartFormDefinition {
   latestVersionStatus?: SmartFormVersionStatus;
   hasUnpublishedDraft?: boolean;
   draftFields?: SmartFormField[] | null;
+  draftRules?: FormRule[] | null;
 }
 
 export interface FormAttachmentValue {
@@ -98,6 +123,22 @@ export interface FormAttachmentValue {
   previewDataUrl?: string;
 }
 
+export interface UserDirectoryItem {
+  id: string;
+  displayName: string;
+  email: string;
+  department: string;
+}
+
+export interface SmartObjectLookupPage {
+  items: Record<string, unknown>[];
+  page: number;
+  pageSize: number;
+  totalCount: number;
+  totalPages: number;
+  hasMore: boolean;
+}
+
 export interface SmartFormSubmission {
   id: string;
   smartFormId: string;
@@ -106,4 +147,10 @@ export interface SmartFormSubmission {
   linkedInstanceId?: string | null;
   submittedAt: string;
   smartFormVersionId?: string | null;
+  status?: 'Draft' | 'Submitted';
+  updatedAt?: string | null;
+  smartFormTitle?: string | null;
+  smartFormCategory?: string | null;
+  instanceStatus?: string | null;
+  currentStep?: string | null;
 }

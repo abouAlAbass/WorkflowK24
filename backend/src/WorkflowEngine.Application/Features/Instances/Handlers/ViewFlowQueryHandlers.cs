@@ -2,6 +2,8 @@ using System.Text.Json;
 using WorkflowEngine.Application.Common.Security;
 using WorkflowEngine.Application.Features.Instances.DTOs;
 using WorkflowEngine.Application.Features.Instances.Queries;
+using WorkflowEngine.Application.Features.SmartObjects.DTOs;
+using WorkflowEngine.Application.Services.Executors;
 using WorkflowEngine.Domain.Entities;
 using WorkflowEngine.Domain.Enums;
 using WorkflowEngine.Domain.Repositories;
@@ -20,15 +22,18 @@ public class ViewFlowQueryHandlers
     private readonly IWorkflowInstanceRepository _instanceRepository;
     private readonly INodeExecutionRepository _nodeExecutionRepository;
     private readonly IInstanceEventRepository _eventRepository;
+    private readonly ISmartObjectRepository? _smartObjectRepository;
 
     public ViewFlowQueryHandlers(
         IWorkflowInstanceRepository instanceRepository,
         INodeExecutionRepository nodeExecutionRepository,
-        IInstanceEventRepository eventRepository)
+        IInstanceEventRepository eventRepository,
+        ISmartObjectRepository? smartObjectRepository = null)
     {
         _instanceRepository = instanceRepository ?? throw new ArgumentNullException(nameof(instanceRepository));
         _nodeExecutionRepository = nodeExecutionRepository ?? throw new ArgumentNullException(nameof(nodeExecutionRepository));
         _eventRepository = eventRepository ?? throw new ArgumentNullException(nameof(eventRepository));
+        _smartObjectRepository = smartObjectRepository;
     }
 
     public async Task<ViewFlowDto?> Handle(GetInstanceViewFlowQuery query, CancellationToken ct)
@@ -43,7 +48,7 @@ public class ViewFlowQueryHandlers
         var events = await _eventRepository.GetByInstanceIdAsync(instance.InstanceId, ct);
 
         string definitionJson = instance.WorkflowVersion?.GraphJson ?? "{}";
-        var explicitSensitiveNames = CollectSensitiveVariableNames(instance, definitionJson);
+        var explicitSensitiveNames = await CollectSensitiveVariableNamesAsync(instance, definitionJson, ct);
         bool canViewSensitive = SensitiveDataMasker.CanViewSensitive(query.Roles, query.Permissions);
 
         var instanceInfo = new ViewFlowInstanceDto(
@@ -69,6 +74,39 @@ public class ViewFlowQueryHandlers
 
         var activeNodes = ComputeActiveNodes(instance, nodeExecutions);
 
+        var tokenDtos = instance.Tokens
+            .OrderBy(t => t.CreatedAt)
+            .ThenBy(t => t.BranchId ?? string.Empty, StringComparer.Ordinal)
+            .Select(t => new ViewFlowTokenDto(
+                Id: t.Id,
+                ParentTokenId: t.ParentTokenId,
+                NodeId: t.NodeId,
+                Status: t.Status.ToString(),
+                BranchId: t.BranchId,
+                SplitNodeId: t.SplitNodeId,
+                Version: t.Version))
+            .ToList();
+
+        var joinStateDtos = instance.JoinStates
+            .OrderBy(j => j.CreatedAt)
+            .Select(j => new ViewFlowJoinStateDto(
+                Id: j.Id,
+                SplitNodeId: j.SplitNodeId,
+                JoinNodeId: j.JoinNodeId,
+                ExpectedCount: j.ExpectedCount,
+                ArrivedCount: j.ArrivedCount,
+                JoinFired: j.JoinFired,
+                Version: j.Version))
+            .ToList();
+
+        var activeTokens = tokenDtos.Count > 0
+            ? instance.Tokens
+                .Where(t => t.IsOpen)
+                .OrderBy(t => t.BranchId ?? string.Empty, StringComparer.Ordinal)
+                .Select(t => string.IsNullOrWhiteSpace(t.BranchId) ? t.NodeId : $"{t.BranchId}:{t.NodeId}")
+                .ToList()
+            : activeNodes;
+
         var timelineDtos = events
             .OrderBy(e => e.Seq)
             .TakeLast(DefaultEventsLimit)
@@ -85,9 +123,11 @@ public class ViewFlowQueryHandlers
             DefinitionJson: definitionJson,
             Nodes: nodeDtos,
             ActiveNodes: activeNodes,
-            ActiveTokens: activeNodes,
+            ActiveTokens: activeTokens,
             Timeline: timelineDtos,
-            Variables: variables
+            Variables: variables,
+            Tokens: tokenDtos,
+            JoinStates: joinStateDtos
         );
     }
 
@@ -108,7 +148,7 @@ public class ViewFlowQueryHandlers
         var pageItems = hasMore ? fetched.Take(boundedLimit).ToList() : fetched.ToList();
 
         string definitionJson = instance.WorkflowVersion?.GraphJson ?? "{}";
-        var explicitSensitiveNames = CollectSensitiveVariableNames(instance, definitionJson);
+        var explicitSensitiveNames = await CollectSensitiveVariableNamesAsync(instance, definitionJson, ct);
         bool canViewSensitive = SensitiveDataMasker.CanViewSensitive(query.Roles, query.Permissions);
 
         var eventDtos = pageItems
@@ -170,7 +210,10 @@ public class ViewFlowQueryHandlers
         return active;
     }
 
-    private static HashSet<string> CollectSensitiveVariableNames(WorkflowInstance instance, string? definitionJson)
+    private async Task<HashSet<string>> CollectSensitiveVariableNamesAsync(
+        WorkflowInstance instance,
+        string? definitionJson,
+        CancellationToken ct)
     {
         var names = new HashSet<string>(instance.GetSensitiveVariableNames(), StringComparer.OrdinalIgnoreCase);
 
@@ -184,12 +227,48 @@ public class ViewFlowQueryHandlers
                     foreach (var node in graph.Nodes)
                     {
                         var vars = node.Data.TriggerData?.Variables;
-                        if (vars == null) continue;
-                        foreach (var v in vars)
+                        if (vars != null)
                         {
-                            if (v.IsSensitive && !string.IsNullOrWhiteSpace(v.Name))
+                            foreach (var v in vars)
                             {
-                                names.Add(v.Name.Trim());
+                                if (v.IsSensitive && !string.IsNullOrWhiteSpace(v.Name))
+                                {
+                                    names.Add(v.Name.Trim());
+                                }
+                            }
+                        }
+
+                        var soData = node.Data.SmartObjectData;
+                        if (_smartObjectRepository != null &&
+                            soData != null &&
+                            SmartObjectNodeExecutor.TryParseSmartObjectRef(soData.SmartObjectRef, out var soKey, out var soVer))
+                        {
+                            var so = await _smartObjectRepository.GetByNameAndVersionAsync(soKey, soVer, ct);
+                            if (so != null)
+                            {
+                                var maskedFields = SmartObjectNodeExecutor.DeserializeFields(so.FieldsJson)
+                                    .Where(f => f.Masked && !string.IsNullOrWhiteSpace(f.Name))
+                                    .Select(f => f.Name.Trim())
+                                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+                                names.UnionWith(maskedFields);
+
+                                if (soData.OutputMapping != null && maskedFields.Count > 0)
+                                {
+                                    foreach (var kv in soData.OutputMapping)
+                                    {
+                                        string targetVar = kv.Key?.Trim() ?? string.Empty;
+                                        string sourceExpr = kv.Value?.Trim() ?? string.Empty;
+                                        string normalizedSource = sourceExpr.StartsWith("$.", StringComparison.Ordinal)
+                                            ? sourceExpr[2..]
+                                            : sourceExpr;
+                                        if (!string.IsNullOrWhiteSpace(targetVar) &&
+                                            (maskedFields.Contains(sourceExpr) || maskedFields.Contains(normalizedSource)))
+                                        {
+                                            names.Add(targetVar);
+                                        }
+                                    }
+                                }
                             }
                         }
                     }

@@ -10,5 +10,5 @@ public interface IWorkflowExecutionEngine
 {
     string? EvaluateNextNode(ReactFlowGraph graph, string currentNodeId, string? selectedOutcome = null, string? variablesJson = null);
     Task ExecuteNodeLogicAsync(WorkflowInstance instance, ReactFlowGraph graph, string nodeId, CancellationToken ct = default);
-    Task<string?> ResumeAfterTaskAsync(WorkflowInstance instance, ReactFlowGraph rootGraph, string completedNodeId, string selectedOutcome, CancellationToken ct = default);
+    Task<string?> ResumeAfterTaskAsync(WorkflowInstance instance, ReactFlowGraph rootGraph, string completedNodeId, string selectedOutcome, CancellationToken ct = default, string? tokenId = null);
 }

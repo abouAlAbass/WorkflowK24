@@ -91,6 +91,10 @@ describe('Workflow Stage & Sub-Workflow Drill-Down', () => {
           isConnectable={true} 
           positionAbsoluteX={0} 
           positionAbsoluteY={0} 
+          dragging={false}
+          draggable={true}
+          selectable={true}
+          deletable={true}
         />
       </ReactFlowProvider>
     );

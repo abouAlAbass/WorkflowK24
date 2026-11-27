@@ -4,6 +4,7 @@ import { HomeDashboard } from './components/dashboard/HomeDashboard';
 import { ActiveInstancesView } from './components/views/ActiveInstancesView';
 import { DataModelsView } from './components/views/DataModelsView';
 import { SmartFormsView } from './components/views/SmartFormsView';
+import { ServicePortalView } from './components/views/ServicePortalView';
 import { TaskCenterView } from './components/views/TaskCenterView';
 import { AnalyticsView } from './components/views/AnalyticsView';
 import { UsersView } from './components/views/UsersView';
@@ -16,11 +17,15 @@ import { SimulatorPanel } from './components/modals/SimulatorPanel';
 import { JsonSchemaModal } from './components/modals/JsonSchemaModal';
 import { ValidationModal } from './components/modals/ValidationModal';
 import { ModeSelectorModal } from './components/modals/ModeSelectorModal';
+import { LoginCallbackHandler } from './components/auth/LoginCallbackHandler';
 import { useWorkflowStore } from './hooks/useWorkflowStore';
 import { useSmartFormStore } from './store/useSmartFormStore';
 import { useUrlRouter } from './hooks/useUrlRouter';
 
 export function App() {
+  const [isLoginCallback, setIsLoginCallback] = useState(
+    () => typeof window !== 'undefined' && window.location.pathname === '/login/callback'
+  );
   useUrlRouter();
   const [isJsonModalOpen, setIsJsonModalOpen] = useState(false);
   const [jsonModalTab, setJsonModalTab] = useState<'export' | 'import' | 'database'>('export');
@@ -28,14 +33,25 @@ export function App() {
   
   const currentTab = useWorkflowStore((state) => state.currentTab);
   const isModeModalOpen = useWorkflowStore((state) => state.isModeModalOpen);
+  const openModeModal = useWorkflowStore((state) => state.openModeModal);
   const closeModeModal = useWorkflowStore((state) => state.closeModeModal);
   const syncDataFromRepository = useWorkflowStore((state) => state.syncDataFromRepository);
   const syncForms = useSmartFormStore((state) => state.syncForms);
 
   useEffect(() => {
+    if (isLoginCallback) return;
     syncDataFromRepository();
     syncForms();
-  }, [syncDataFromRepository, syncForms]);
+  }, [isLoginCallback, syncDataFromRepository, syncForms]);
+
+  if (isLoginCallback) {
+    return (
+      <LoginCallbackHandler
+        onComplete={() => setIsLoginCallback(false)}
+        onOpenLogin={() => openModeModal()}
+      />
+    );
+  }
 
   const handleOpenJsonModal = (tab: 'export' | 'import' | 'database' = 'export') => {
     setJsonModalTab(tab);
@@ -46,6 +62,9 @@ export function App() {
     switch (currentTab) {
       case 'dashboard':
         return <HomeDashboard />;
+
+      case 'portal':
+        return <ServicePortalView />;
 
       case 'designer':
         return (

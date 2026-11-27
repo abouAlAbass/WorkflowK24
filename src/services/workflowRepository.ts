@@ -5,12 +5,33 @@ import type {
   SmartObjectEntity,
   SmartObjectRecord,
   UserRecord,
+  UserAuditEntry,
   AnalyticsKpiData,
   SystemSettingsData,
   ViewFlowData,
   InstanceEventsPage,
-  InstanceCommandResponse
+  InstanceCommandResponse,
+  ConnectionRecord,
+  CreateConnectionPayload,
+  ConnectionTestResult,
+  ConnectionPermissionRecord,
+  UpsertConnectionPermissionPayload,
+  UserConnectionCredentialRecord,
+  RotateConnectionSecretPayload,
+  ConnectionUsageResponse,
+  ConnectionEnvironmentConfigRecord,
+  UpsertConnectionEnvironmentConfigPayload,
+  DiscoveredEntity,
+  GenerateSmartObjectFromConnectionPayload,
+  SchemaDiffResult,
+  TaskAssignmentRecord,
+  DelegationRuleRecord,
+  CreateDelegationRulePayload,
+  PublicAuthProvidersResponse,
+  AuthProviderRecord,
+  UpsertAuthProviderPayload
 } from '../types/workflow';
+import type { UserDirectoryItem, SmartObjectLookupPage } from '../types/smartform';
 
 export type AppMode = 'demo' | 'connected';
 
@@ -69,10 +90,29 @@ export interface WorkflowRepository {
     comments?: string,
     formPatch?: Record<string, unknown>
   ): Promise<void>;
+  delegateTask(
+    taskId: string,
+    targetAssigneeId: string,
+    reason?: string,
+    expectedVersion?: number
+  ): Promise<void>;
+  recallTask(taskId: string, reason?: string, expectedVersion?: number): Promise<void>;
+  claimTask(taskId: string, expectedVersion?: number): Promise<void>;
+  releaseTask(taskId: string, reason?: string, expectedVersion?: number): Promise<void>;
+  getTaskAssignments(taskId: string): Promise<TaskAssignmentRecord[]>;
+
+  // Out-of-Office Delegation Rules
+  getDelegationRules(): Promise<DelegationRuleRecord[]>;
+  createDelegationRule(payload: CreateDelegationRulePayload): Promise<DelegationRuleRecord>;
+  deleteDelegationRule(id: string): Promise<void>;
 
   // Organizational & Data Models
   getUsers(): Promise<UserRecord[]>;
+  searchUsers(query?: string, limit?: number): Promise<UserDirectoryItem[]>;
   createUser(user: Omit<UserRecord, 'id'>): Promise<UserRecord>;
+  updateUser(id: string, updates: Pick<UserRecord, 'name' | 'role' | 'group' | 'status'> & { avatarUrl?: string }): Promise<UserRecord>;
+  resetUserPassword(id: string, newPassword: string): Promise<void>;
+  getUserAuditLog(limit?: number): Promise<UserAuditEntry[]>;
   deleteUser(id: string): Promise<void>;
   getSmartObjects(): Promise<SmartObjectEntity[]>;
   createSmartObject(entity: SmartObjectEntity): Promise<SmartObjectEntity>;
@@ -81,6 +121,7 @@ export interface WorkflowRepository {
 
   // SmartObject Data Items
   getSmartObjectRecords(smartObjectId: string): Promise<SmartObjectRecord[]>;
+  lookupSmartObject(smartObjectId: string, query?: string, page?: number, pageSize?: number): Promise<SmartObjectLookupPage>;
   addSmartObjectRecord(smartObjectId: string, record: SmartObjectRecord): Promise<SmartObjectRecord>;
   updateSmartObjectRecord(smartObjectId: string, primaryKeyVal: string | number, record: SmartObjectRecord): Promise<SmartObjectRecord>;
   deleteSmartObjectRecord(smartObjectId: string, primaryKeyVal: string | number): Promise<void>;
@@ -89,4 +130,38 @@ export interface WorkflowRepository {
   getAnalyticsKpis(): Promise<AnalyticsKpiData>;
   getSettings(): Promise<SystemSettingsData>;
   saveSettings(settings: Partial<SystemSettingsData>): Promise<SystemSettingsData>;
+
+  // External Connections (Service Brokers, Governance & Personal Vault)
+  getConnections(): Promise<ConnectionRecord[]>;
+  createConnection(payload: CreateConnectionPayload): Promise<ConnectionRecord>;
+  deleteConnection(id: string): Promise<void>;
+  testConnection(id: string): Promise<ConnectionTestResult>;
+  rotateConnectionSecret(id: string, payload: RotateConnectionSecretPayload): Promise<ConnectionRecord>;
+  getConnectionUsage(id: string, limit?: number): Promise<ConnectionUsageResponse>;
+  getConnectionEnvironments(id: string): Promise<ConnectionEnvironmentConfigRecord[]>;
+  upsertConnectionEnvironment(
+    id: string,
+    payload: UpsertConnectionEnvironmentConfigPayload
+  ): Promise<ConnectionEnvironmentConfigRecord>;
+  getConnectionPermissions(connectionId: string): Promise<ConnectionPermissionRecord[]>;
+  upsertConnectionPermission(connectionId: string, payload: UpsertConnectionPermissionPayload): Promise<ConnectionPermissionRecord>;
+  deleteConnectionPermission(connectionId: string, permissionId: string): Promise<void>;
+  getMyConnectionCredentials(): Promise<UserConnectionCredentialRecord[]>;
+  upsertMyConnectionCredential(connectionId: string, secretJson: string): Promise<UserConnectionCredentialRecord>;
+  deleteMyConnectionCredential(connectionId: string): Promise<void>;
+  discoverConnectionEntities(connectionId: string): Promise<DiscoveredEntity[]>;
+  generateSmartObjectFromConnection(
+    connectionId: string,
+    payload: GenerateSmartObjectFromConnectionPayload
+  ): Promise<SmartObjectEntity>;
+  syncSmartObjectSchema(smartObjectId: string, apply?: boolean): Promise<SchemaDiffResult>;
+
+  // External OIDC Authentication & Admin Providers
+  getPublicAuthProviders(): Promise<PublicAuthProvidersResponse>;
+  getExternalChallengeUrl(providerId: string): string;
+  exchangeExternalAuthCode(exchangeCode: string): Promise<AuthSession>;
+  getAdminAuthProviders(): Promise<AuthProviderRecord[]>;
+  createAuthProvider(payload: UpsertAuthProviderPayload): Promise<AuthProviderRecord>;
+  updateAuthProvider(id: string, payload: UpsertAuthProviderPayload): Promise<AuthProviderRecord>;
+  deleteAuthProvider(id: string): Promise<void>;
 }

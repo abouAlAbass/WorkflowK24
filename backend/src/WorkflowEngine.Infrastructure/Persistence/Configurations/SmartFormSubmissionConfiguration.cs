@@ -35,6 +35,14 @@ public class SmartFormSubmissionConfiguration : IEntityTypeConfiguration<SmartFo
             .HasMaxLength(255)
             .IsRequired();
 
+        builder.Property(s => s.Status)
+            .HasMaxLength(32)
+            .HasDefaultValue(SmartFormSubmissionEntity.StatusSubmitted)
+            .IsRequired();
+
+        builder.HasIndex(s => new { s.SubmittedBy, s.Status })
+            .HasDatabaseName("IX_SmartFormSubmissions_SubmittedBy_Status");
+
         builder.Property(s => s.DataJson)
             .HasDefaultValue("{}")
             .IsRequired();
@@ -42,6 +50,17 @@ public class SmartFormSubmissionConfiguration : IEntityTypeConfiguration<SmartFo
         builder.Property(s => s.LinkedInstanceId)
             .HasMaxLength(100)
             .IsRequired(false);
+
+        builder.Property(s => s.SmartObjectRecordId)
+            .IsRequired(false);
+
+        builder.HasIndex(s => s.SmartObjectRecordId)
+            .HasDatabaseName("IX_SmartFormSubmissions_SmartObjectRecordId");
+
+        builder.HasOne<SmartObjectRecordEntity>()
+            .WithMany()
+            .HasForeignKey(s => s.SmartObjectRecordId)
+            .OnDelete(DeleteBehavior.SetNull);
 
         builder.Property(s => s.IdempotencyKey)
             .HasMaxLength(128)
@@ -55,6 +74,10 @@ public class SmartFormSubmissionConfiguration : IEntityTypeConfiguration<SmartFo
             .HasDatabaseName("UX_SmartFormSubmissions_Form_IdempotencyKey");
 
         builder.Property(s => s.SubmittedAt)
+            .HasDefaultValueSql("CURRENT_TIMESTAMP")
+            .IsRequired();
+
+        builder.Property(s => s.UpdatedAt)
             .HasDefaultValueSql("CURRENT_TIMESTAMP")
             .IsRequired();
     }

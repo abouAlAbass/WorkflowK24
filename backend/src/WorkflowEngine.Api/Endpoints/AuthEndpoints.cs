@@ -4,6 +4,9 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using WorkflowEngine.Api.Auth;
+using Microsoft.Extensions.Configuration;
+using WorkflowEngine.Domain.Entities;
+using WorkflowEngine.Domain.Security;
 using WorkflowEngine.Domain.Repositories;
 
 namespace WorkflowEngine.Api.Endpoints;
@@ -22,7 +25,9 @@ public static class AuthEndpoints
         group.MapPost("/login", async (
             LoginRequest request,
             ISystemUserRepository userRepository,
+            IUserAuditRepository audit,
             IJwtTokenService tokenService,
+            IConfiguration configuration,
             CancellationToken ct) =>
         {
             if (string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.Password))
@@ -30,12 +35,41 @@ public static class AuthEndpoints
                 return Results.BadRequest(new { error = "Email and password are required." });
             }
 
+            int maxAttempts = int.TryParse(configuration["Auth:MaxFailedAttempts"], out var m) && m > 0 ? m : 5;
+            int lockoutMinutes = int.TryParse(configuration["Auth:LockoutMinutes"], out var l) && l > 0 ? l : 15;
+            var now = DateTime.UtcNow;
+
             string email = request.Email.Trim().ToLowerInvariant();
             var user = await userRepository.GetByEmailAsync(email, ct);
 
+            if (user != null && user.IsLockedOut(now))
+            {
+                return Results.Json(
+                    new { error = "Account temporarily locked after too many failed attempts.", lockedUntil = user.LockoutEnd },
+                    statusCode: StatusCodes.Status423Locked);
+            }
+
             if (user == null || !user.VerifyPassword(request.Password))
             {
+                if (user != null)
+                {
+                    bool nowLocked = user.RegisterFailedLogin(maxAttempts, TimeSpan.FromMinutes(lockoutMinutes), now);
+                    await userRepository.UpdateAsync(user, ct);
+                    if (nowLocked)
+                    {
+                        await audit.AddAsync(new UserAuditLog(
+                            user.Id, user.Email, UserAuditActions.AccountLocked, user.Id, user.Email,
+                            $"Locked for {lockoutMinutes} min after {maxAttempts} failed attempts"), ct);
+                    }
+                }
+
                 return Results.Unauthorized();
+            }
+
+            if (user.FailedLoginCount > 0 || user.LockoutEnd.HasValue)
+            {
+                user.ResetLockout();
+                await userRepository.UpdateAsync(user, ct);
             }
 
             if (!string.Equals(user.Status, "Active", StringComparison.OrdinalIgnoreCase))
@@ -56,13 +90,18 @@ public static class AuthEndpoints
             ChangePasswordRequest request,
             ClaimsPrincipal principal,
             ISystemUserRepository userRepository,
+            IUserAuditRepository audit,
             CancellationToken ct) =>
         {
             if (string.IsNullOrWhiteSpace(request.CurrentPassword) ||
-                string.IsNullOrWhiteSpace(request.NewPassword) ||
-                request.NewPassword.Length < 8)
+                string.IsNullOrWhiteSpace(request.NewPassword))
             {
-                return Results.BadRequest(new { error = "Current password and a new password of at least 8 characters are required." });
+                return Results.BadRequest(new { error = "Current password and a new password are required." });
+            }
+
+            if (!PasswordPolicy.IsValid(request.NewPassword))
+            {
+                return Results.BadRequest(new { error = PasswordPolicy.Description });
             }
 
             var email = principal.FindFirstValue(ClaimTypes.Email)
@@ -81,6 +120,7 @@ public static class AuthEndpoints
 
             user.SetPassword(request.NewPassword);
             await userRepository.UpdateAsync(user, ct);
+            await audit.AddAsync(new UserAuditLog(user.Id, user.Email, UserAuditActions.PasswordChanged, user.Id, user.Email), ct);
 
             return Results.Ok(new { message = "Password updated successfully." });
         })
